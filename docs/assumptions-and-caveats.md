@@ -55,21 +55,35 @@ API (`?key=GEMINI_API_KEY` query param). Live testing against the real
 `.env` value returned `401 UNAUTHENTICATED` — that key's format (`AQ....`)
 doesn't match a standard AI Studio key (`AIzaSy...`), and it turned out to
 be provisioned for Vertex AI instead. Rewritten to use Vertex AI with
-OAuth2 access tokens resolved from `GOOGLE_APPLICATION_CREDENTIALS`
-(service account JSON) via the `google-auth-library` package, sent as a
-`Bearer` header rather than a query param. **Confirmed working live**
-against `GOOGLE_CLOUD_PROJECT`/`GOOGLE_CLOUD_LOCATION=global`/
+OAuth2 access tokens resolved from `GOOGLE_APPLICATION_CREDENTIALS` via
+the `google-auth-library` package, sent as a `Bearer` header rather than
+a query param. **Confirmed working live** against
+`GOOGLE_CLOUD_PROJECT`/`GOOGLE_CLOUD_LOCATION=global`/
 `GEMINI_MODEL=gemini-3.7-flash` — `gemini-3.7-flash` is a real, reachable
 model id on this Vertex AI project. This is now wired into
 `runPipeline()`: every new batch gets summarized via a single Vertex AI
 call before Notion write and Discord post (see
 [architecture.md](./architecture.md)).
 
+**The credential file is the user's own `authorized_user` ADC
+credentials (from `gcloud auth application-default login`), not a
+dedicated service account** — `{"type": "authorized_user", ...}`, ~400
+bytes, not the ~2300+-byte service-account key one might expect. This was
+a deliberate choice, made knowingly, over creating a separate service
+account for the bot: less setup, but it ties the deployed GitHub Actions
+job's Vertex AI access to the user's personal Google identity. If that
+OAuth grant is ever revoked, the linked Google account's password
+changes in a way that invalidates the refresh token, or Google expires
+it, the deployed job's summarization breaks — with no code change able
+to fix it, only re-running `gcloud auth application-default login` and
+updating the `GOOGLE_APPLICATION_CREDENTIALS_JSON` GitHub secret.
+
 If `GOOGLE_APPLICATION_CREDENTIALS` ever points at a missing/expired/
-revoked service account, or the project/location/model combination stops
+revoked credential, or the project/location/model combination stops
 being valid, summarization degrades exactly as described in
 [resilience.md](./resilience.md#the-vertex-ai-gemini-api-doesnt-respond-times-out-or-errors) —
-blank summaries, no crash, no alert.
+blank summaries, no crash, and (as of the prod-readiness pass) a DM to
+every admin, not silent.
 
 ## No process supervision — resolved by not having a long-lived process
 
