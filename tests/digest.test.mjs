@@ -82,4 +82,13 @@ describe('postDigest', () => {
     await postDigest(channel, Array.from({ length: 4 }, (_, i) => opp(`item-${i}`))); // 1 overflow
     assert.equal(sent.thread.created.name, 'Ще 1 можливість');
   });
+
+  it('truncates a very long description so the message stays under Discord\'s 4000-char component text cap', async () => {
+    const { channel, sent } = makeFakeChannel();
+    const longDescription = 'a'.repeat(5000);
+    await postDigest(channel, [{ ...opp('long'), description: longDescription }]);
+    const payloadSize = JSON.stringify(sent.main.components).length;
+    assert.ok(payloadSize < 4000, `expected payload under 4000 chars, got ${payloadSize}`);
+    assert.ok(JSON.stringify(sent.main.components).includes('…'));
+  });
 });

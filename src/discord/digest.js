@@ -14,6 +14,15 @@ import { percentileColor } from './score-color.js';
 
 const MAIN_MESSAGE_LIMIT = 3;
 const THREAD_CHUNK_SIZE = 5;
+// Components V2 caps a whole message's displayable text at 4000 chars;
+// with up to 5 items per message this keeps every message safely under
+// that regardless of how long a scraped description happens to be.
+const MAX_DESCRIPTION_LENGTH = 300;
+
+function truncate(text, maxLength) {
+  if (!text) return null;
+  return text.length > maxLength ? `${text.slice(0, maxLength)}…` : text;
+}
 
 function pluralizeOpportunity(count) {
   const mod10 = count % 10;
@@ -31,7 +40,8 @@ function itemContainer(opportunity, allScores) {
   const score = scoreOpportunity(opportunity);
   const color = percentileColor(score, allScores);
   const detailLine = [opportunity.location, opportunity.payment].filter(Boolean).join(' · ');
-  const body = [opportunity.description, detailLine].filter(Boolean).join('\n') || '—';
+  const description = truncate(opportunity.description, MAX_DESCRIPTION_LENGTH);
+  const body = [description, detailLine].filter(Boolean).join('\n') || '—';
 
   const container = new ContainerBuilder()
     .addTextDisplayComponents(new TextDisplayBuilder().setContent(`**${opportunity.title}**`))
