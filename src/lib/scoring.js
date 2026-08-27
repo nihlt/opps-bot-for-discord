@@ -23,9 +23,9 @@ function parseYearsOfExperience(text) {
  * Heuristic 0-100 "worth your attention" score, aimed at LPNU Computer
  * Science / AI Systems undergrads (years 1-4). It approximates a
  * result-for-effort ratio:
- *   - result: fellowships/stipends (paid + prestige) score highest,
- *     internships next, hackathons/competitions (prize + resume) next,
- *     generic events last; jobs are scored separately since "result" for
+ *   - result: fellowships/stipends (paid + prestige) score highest;
+ *     internships and hackathons/competitions (prize + resume) tie for
+ *     second; generic events last. Jobs are scored separately since "result" for
  *     a job is a salary a 1st-4th-year student usually can't access yet.
  *   - effort: an event in Lviv (the department's home city — zero travel)
  *     is the single biggest bonus; online/remote is a smaller one, since
@@ -59,7 +59,7 @@ export function scoreOpportunity(opportunity) {
   } else if (tags.some((tag) => internshipTagPattern.test(tag))) {
     score = 55;
   } else if (hackathonSources.has(opportunity.sourceId) || hackathonTagPattern.test(titleAndTags)) {
-    score = 45;
+    score = 55;
   } else {
     score = 25;
   }
