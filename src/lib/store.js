@@ -1,0 +1,52 @@
+import { rename, readFile, writeFile } from 'node:fs/promises';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const repoRoot = path.resolve(__dirname, '..', '..');
+const defaultEventsPath = path.join(repoRoot, 'data', 'events.jsonl');
+
+/** Reads all stored Opportunity records from a JSONL file. Returns [] if the file doesn't exist yet. */
+export async function loadEvents(filePath = defaultEventsPath) {
+  let raw;
+  try {
+    raw = await readFile(filePath, 'utf8');
+  } catch (error) {
+    if (error.code === 'ENOENT') return [];
+    throw error;
+  }
+  return raw
+    .split('\n')
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .map((line) => JSON.parse(line));
+}
+
+/**
+ * Appends only the Opportunities whose `id` isn't already in the store.
+ * Rewrites the whole file atomically (temp file + rename) so a crash
+ * mid-write never leaves a truncated/corrupt events.jsonl behind.
+ * Returns the subset of `opportunities` that were actually new.
+ */
+export async function appendNewEvents(opportunities, filePath = defaultEventsPath) {
+  const existing = await loadEvents(filePath);
+  const seenIds = new Set(existing.map((event) => event.id));
+
+  const newEvents = [];
+  for (const opportunity of opportunities) {
+    if (seenIds.has(opportunity.id)) continue;
+    seenIds.add(opportunity.id);
+    newEvents.push(opportunity);
+  }
+
+  if (newEvents.length === 0) return [];
+
+  const allEvents = [...existing, ...newEvents];
+  const contents = allEvents.map((event) => JSON.stringify(event)).join('\n') + '\n';
+
+  const tempPath = `${filePath}.${process.pid}.tmp`;
+  await writeFile(tempPath, contents, 'utf8');
+  await rename(tempPath, filePath);
+
+  return newEvents;
+}
