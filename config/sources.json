@@ -1,12 +1,12 @@
 [
   {"id": "notion", "module": "notion.js", "kind": "event", "enabled": true},
-  {"id": "dou-ai", "module": "dou-calendar.js", "kind": "event", "enabled": true, "tag": "AI"},
-  {"id": "dou-hackathon", "module": "dou-calendar.js", "kind": "event", "enabled": true, "tag": "хакатон"},
-  {"id": "dou-competition", "module": "dou-calendar.js", "kind": "event", "enabled": true, "tag": "змагання"},
-  {"id": "ain", "module": "ain-opportunities.js", "kind": "event", "enabled": true},
-  {"id": "kaggle", "module": "kaggle-competitions.js", "kind": "event", "enabled": true},
-  {"id": "kse-news", "module": "kse-news.js", "kind": "event", "enabled": true},
-  {"id": "djinni", "module": "djinni.js", "kind": "job", "enabled": true},
-  {"id": "work-ua", "module": "work-ua.js", "kind": "job", "enabled": true},
-  {"id": "robota-ua", "module": "robota-ua.js", "kind": "job", "enabled": false, "disabledReason": "Cloudflare blocks headless access"}
+  {"id": "dou-ai", "module": "dou-calendar.js", "kind": "event", "enabled": true, "tag": "AI", "url": "https://dou.ua/calendar/tags/AI/"},
+  {"id": "dou-hackathon", "module": "dou-calendar.js", "kind": "event", "enabled": true, "tag": "хакатон", "url": "https://dou.ua/calendar/tags/%D1%85%D0%B0%D0%BA%D0%B0%D1%82%D0%BE%D0%BD/"},
+  {"id": "dou-competition", "module": "dou-calendar.js", "kind": "event", "enabled": true, "tag": "змагання", "url": "https://dou.ua/calendar/tags/%D0%B7%D0%BC%D0%B0%D0%B3%D0%B0%D0%BD%D0%BD%D1%8F/"},
+  {"id": "ain", "module": "ain-opportunities.js", "kind": "event", "enabled": true, "url": "https://ain.ua/search/?q=%22%D0%BC%D0%BE%D0%B6%D0%BB%D0%B8%D0%B2%D0%BE%D1%81%D1%82%D1%96+%D1%82%D0%B8%D0%B6%D0%BD%D1%8F%22"},
+  {"id": "kaggle", "module": "kaggle-competitions.js", "kind": "event", "enabled": true, "url": "https://www.kaggle.com/competitions?listOption=active%5C&participationFilter=open&hostSegmentIdFilter=1"},
+  {"id": "kse-news", "module": "kse-news.js", "kind": "event", "enabled": true, "url": "https://university.kse.ua/university-news"},
+  {"id": "djinni", "module": "djinni.js", "kind": "job", "enabled": true, "url": "https://djinni.co/jobs/?all_keywords=ai%20engineer&search_type=basic-search&exp_level=no_exp&exp_level=1y"},
+  {"id": "work-ua", "module": "work-ua.js", "kind": "job", "enabled": true, "url": "https://www.work.ua/jobs-it-ai+engineer/?notitle=1&category=1&days=125"},
+  {"id": "robota-ua", "module": "robota-ua.js", "kind": "job", "enabled": false, "disabledReason": "Cloudflare blocks headless access", "url": "https://robota.ua/zapros/ai-engineer/ukraine/params;agency=false"}
 ]
