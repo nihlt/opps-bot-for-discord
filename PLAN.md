@@ -237,3 +237,28 @@ with "Manage Server" there to add it. Also confirm the "Message Content
 Intent" is enabled for the bot in the Discord Developer Portal (needed to
 read thread message text via the API, on top of the `GatewayIntentBits`
 already requested in `src/discord/client.js`).
+
+### Read Score + Hook back from Notion Feed into the digest
+Notion "Opportunities Feed" (`collection://c1d8983c-256d-4c08-84db-6bc362264be2`)
+now has a `Hook` property (rich text, added alongside `Score`) for the
+user's separately-scheduled Claude agent to fill in: a one-sentence
+concrete-benefit blurb per opportunity, replacing the raw scraped
+description (which is usually promotional filler from the source site, not
+what the reader actually gets out of it). `src/discord/digest.js` already
+prefers `opportunity.hook` over the sentence-truncated description when
+present -- but nothing populates `.hook` yet.
+
+**Needs, once that agent is actually producing Score/Hook data:**
+- A new read module (e.g. `src/lib/notion-feed-reader.js`) that queries the
+  Feed database via `@notionhq/client` and returns Score/Hook keyed by
+  `External Id` (the sha256 `id` we already write on every row).
+- `pipeline.js` (or wherever `postDigest` ends up being called) merges that
+  back onto each `Opportunity` before building the digest -- our own
+  heuristic `scoreOpportunity()` should probably stay as a same-day
+  fallback for anything the external agent hasn't scored yet, since it
+  runs on its own schedule and won't have processed brand-new rows
+  immediately.
+- Also still pending: `postDigest` is built and tested but not yet wired
+  into `pipeline.js`'s actual posting step (which still posts one embed per
+  new opportunity via `discord/post.js`). Decide whether to replace that
+  entirely or keep both.

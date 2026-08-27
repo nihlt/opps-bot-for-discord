@@ -92,6 +92,15 @@ describe('postDigest', () => {
     assert.ok(JSON.stringify(sent.main.components).includes('…'));
   });
 
+  it('prefers opportunity.hook over the raw description when present', async () => {
+    const { channel, sent } = makeFakeChannel();
+    const hook = 'Learn to ship LLM agents to production in a weekend.';
+    await postDigest(channel, [{ ...opp('hooked'), description: 'Generic promo filler about the venue.', hook }]);
+    const payload = JSON.stringify(sent.main.components);
+    assert.ok(payload.includes(hook));
+    assert.ok(!payload.includes('Generic promo filler'));
+  });
+
   it('keeps only the first 3 sentences of a longer description, not a mid-word chop', async () => {
     const { channel, sent } = makeFakeChannel();
     const description = 'One. Two. Three. Four should be dropped.';

@@ -54,7 +54,13 @@ function itemContainer(opportunity, allScores) {
   const score = scoreOpportunity(opportunity);
   const percentile = percentileOf(score, allScores);
   const color = percentileColor(score, allScores);
-  const description = firstSentences(opportunity.description);
+  // `hook` isn't part of our own scraped Opportunity shape -- it's a
+  // one-sentence concrete-benefit blurb the scheduled Claude scoring
+  // agent writes into Notion's "Hook" property alongside Score. Once
+  // there's a step that reads that back and attaches it here, it wins
+  // over the raw scraped description (which is usually promotional
+  // filler from the source site, not what the reader actually gets).
+  const description = opportunity.hook || firstSentences(opportunity.description);
   const metaLine = [opportunity.location, `score ${score}`, percentileLabel(percentile)].filter(Boolean).join(' · ');
   const body = [description, metaLine].filter(Boolean).join('\n') || '—';
 
