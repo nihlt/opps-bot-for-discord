@@ -207,3 +207,33 @@ confirm it's rejected.
 - [ ] `npm test` full suite green.
 - [ ] Review `data/events.jsonl` growth is sane (no duplicate ids, no
       malformed lines).
+
+---
+
+## Backlog — deferred, mechanical work
+
+### New source: Discord forum channel
+Add scraping for `https://discord.com/channels/1029547539424366632/1215783932252127283`
+(guild `1029547539424366632`, channel `1215783932252127283`) — looks like a
+Discord **Forum Channel**: each post is a tagged thread (e.g. "Interface
+Alignment Interventions" tagged `education` + `event`); opening a post shows
+a detailed description + registration links in the thread's first message.
+
+**Decision already made:** use the official **Discord Bot API**
+(`discord.js`, already a dependency) — `channel.threads.fetch()` for the
+thread list, `thread.appliedTags` for tags, first message of each thread for
+the description/links. Map into our `Opportunity` shape same as any other
+`src/sources/*.js` module.
+
+**Explicitly ruled out:** automating the user's personal Discord account
+(browser cookies + headless, or a raw user token) to read the channel via
+the web client. Both are "self-bot" style automation of a human account,
+which violates Discord's ToS regardless of implementation mechanism, and
+risks the account getting banned. Not doing this even for read-only scraping.
+
+**Blocker before implementing:** our bot must be invited into guild
+`1029547539424366632` with permission to view that channel — needs someone
+with "Manage Server" there to add it. Also confirm the "Message Content
+Intent" is enabled for the bot in the Discord Developer Portal (needed to
+read thread message text via the API, on top of the `GatewayIntentBits`
+already requested in `src/discord/client.js`).
