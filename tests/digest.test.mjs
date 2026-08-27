@@ -103,9 +103,42 @@ describe('postDigest', () => {
 
   it('shows a location · score · better-than meta line under each item', async () => {
     const { channel, sent } = makeFakeChannel();
-    await postDigest(channel, [{ ...opp('meta'), location: 'Lviv' }]);
+    const scoringPopulation = [opp('meta'), opp('lower'), opp('lower2')];
+    await postDigest(channel, [{ ...opp('meta'), location: 'Lviv' }], { scoringPopulation });
     const payload = JSON.stringify(sent.main.components);
     assert.ok(payload.includes('Lviv · score'));
-    assert.ok(/better than 0\.\d\d/.test(payload));
+    assert.ok(/better than 0\.\d\d|one of the best/.test(payload));
+  });
+
+  it('says "one of the best" instead of a near-1.00 fraction for a top-decile item', async () => {
+    const { channel, sent } = makeFakeChannel();
+    const fellowship = { title: 'Fellowship', kind: 'event', tags: ['Fellowship'], location: '', description: '', link: 'https://x.test/f' };
+    const scoringPopulation = [fellowship, ...Array.from({ length: 9 }, (_, i) => opp(`filler-${i}`))];
+    await postDigest(channel, [fellowship], { scoringPopulation });
+    const payload = JSON.stringify(sent.main.components);
+    assert.ok(payload.includes('one of the best'));
+    assert.ok(!payload.includes('better than 1.00'));
+  });
+
+  it('ranks against the full scoringPopulation, not just the posted batch', async () => {
+    const { channel, sent } = makeFakeChannel();
+    // A mediocre item that would look "top of the batch" if ranked only
+    // against itself and one other mediocre item.
+    const mediocre = opp('mediocre');
+    const scoringPopulation = [
+      mediocre,
+      ...Array.from({ length: 9 }, (_, i) => ({
+        title: `Fellowship ${i}`,
+        kind: 'event',
+        tags: ['Fellowship'],
+        location: '',
+        description: '',
+        link: `https://x.test/fellowship-${i}`,
+      })),
+    ];
+    await postDigest(channel, [mediocre, opp('other-mediocre')], { scoringPopulation });
+    const payload = JSON.stringify(sent.main.components);
+    // Ranked against 9 fellowships it's clearly bottom-tier, not "one of the best".
+    assert.ok(!payload.includes('one of the best'));
   });
 });

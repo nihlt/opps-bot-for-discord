@@ -41,14 +41,21 @@ function divider() {
   return new SeparatorBuilder().setDivider(true).setSpacing(SeparatorSpacingSize.Small);
 }
 
+const TOP_PERCENTILE_LABEL = 0.9;
+
+function percentileLabel(percentile) {
+  // A "better than 1.00" is a real number but reads as a bug -- past the
+  // top-decile cutoff (the same one that drives the gold accent), just
+  // say it's one of the best rather than showing a number pinned near 1.
+  return percentile >= TOP_PERCENTILE_LABEL ? 'one of the best' : `better than ${percentile.toFixed(2)}`;
+}
+
 function itemContainer(opportunity, allScores) {
   const score = scoreOpportunity(opportunity);
   const percentile = percentileOf(score, allScores);
   const color = percentileColor(score, allScores);
   const description = firstSentences(opportunity.description);
-  const metaLine = [opportunity.location, `score ${score}`, `better than ${percentile.toFixed(2)}`]
-    .filter(Boolean)
-    .join(' · ');
+  const metaLine = [opportunity.location, `score ${score}`, percentileLabel(percentile)].filter(Boolean).join(' · ');
   const body = [description, metaLine].filter(Boolean).join('\n') || '—';
 
   const container = new ContainerBuilder()
@@ -91,14 +98,20 @@ export function splitForDigest(opportunities, limit = MAIN_MESSAGE_LIMIT) {
 /**
  * Posts a batch of opportunities as a digest: at most 3 (by score) go in
  * the channel message itself; everything else is pushed into a thread off
- * that message, in chunks so no single follow-up gets too dense. Accent
- * color is percentile-based across the WHOLE batch passed in, not just
- * whichever items land in the main message.
+ * that message, in chunks so no single follow-up gets too dense.
+ *
+ * The accent color and "better than 0.NN" figure are percentiles against
+ * `scoringPopulation` (the whole known catalogue, e.g. every stored
+ * Opportunity), NOT just the handful of items being posted today --
+ * ranking a small daily batch against itself would be close to
+ * meaningless (a single mediocre item could look "top 10%" of a batch of
+ * 3). Defaults to `opportunities` itself only if no broader population is
+ * given (e.g. in tests, or a first run with nothing else on record yet).
  */
-export async function postDigest(channel, opportunities) {
+export async function postDigest(channel, opportunities, { scoringPopulation = opportunities } = {}) {
   if (opportunities.length === 0) return null;
 
-  const allScores = opportunities.map(scoreOpportunity);
+  const allScores = scoringPopulation.map(scoreOpportunity);
   const { main, overflow } = splitForDigest(opportunities);
 
   const mainMessage = await channel.send({
