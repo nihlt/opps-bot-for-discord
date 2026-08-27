@@ -30,6 +30,7 @@ describe('toFeedProperties', () => {
     assert.deepEqual(props.Deadline, { date: { start: '2026-09-01', end: undefined } });
     assert.equal(props.Payment, undefined);
     assert.equal(props.Company, undefined);
+    assert.equal(typeof props.Score.number, 'number');
   });
 
   it('includes a date range when dateEndNormalized is set', () => {

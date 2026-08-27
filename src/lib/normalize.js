@@ -197,11 +197,15 @@ const freeIndicatorPattern = /безкоштов|безоплат|\bfree\b/i;
 const currencyAmountPattern = /(?:[$€£¥₴]\s?\d[\d,.]*|\d[\d,.]*\s?(?:usd|eur|gbp|uah|грн))/i;
 const fellowshipPattern = /fellowship|стипенді\p{L}*|стипенд\p{L}*|grant|грант\p{L}*/iu;
 
-/** True when the opportunity's own text reads as a fellowship/stipend program. */
+/**
+ * True when the opportunity's own title/tags read as a fellowship/stipend
+ * program. Deliberately excludes the description: a fellowship names
+ * itself as such in the title, while long scraped descriptions often
+ * mention "grant"/"грант" in passing (e.g. a conference discussing grant
+ * funding as a topic) without the event itself being one.
+ */
 export function isFellowship(opportunity) {
-  const text = [opportunity.title, ...(opportunity.tags || []), opportunity.description]
-    .filter(Boolean)
-    .join(' ');
+  const text = [opportunity.title, ...(opportunity.tags || [])].filter(Boolean).join(' ');
   return fellowshipPattern.test(text);
 }
 

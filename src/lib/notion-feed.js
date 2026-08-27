@@ -1,4 +1,5 @@
 import { Client } from '@notionhq/client';
+import { scoreOpportunity } from './scoring.js';
 
 const MAX_TEXT_LENGTH = 1900;
 
@@ -24,14 +25,16 @@ function buildDeadlineProperty(opportunity) {
 
 /**
  * Maps our Opportunity shape onto the "Opportunities Feed" database's
- * properties. Score is intentionally never set here -- a separately
- * scheduled agent fills it in after the fact.
+ * properties, including our own heuristic Score (see lib/scoring.js). A
+ * separately scheduled agent may revise the Score later -- this just
+ * makes sure it's never left blank.
  */
 export function toFeedProperties(opportunity) {
   const properties = {
     Name: { title: richText(opportunity.title || 'Untitled') },
     Kind: { select: { name: opportunity.kind } },
     Source: { select: { name: opportunity.sourceId } },
+    Score: { number: scoreOpportunity(opportunity) },
     'External Id': { rich_text: richText(opportunity.id) },
   };
 
@@ -49,11 +52,11 @@ export function toFeedProperties(opportunity) {
 }
 
 /**
- * Writes scraped opportunities into the "Opportunities Feed" database, for
- * a separately-scheduled agent to score later (Score is left blank).
- * Notion-sourced opportunities are skipped -- they already live in Notion,
- * writing them back would be circular. Per-item failures are collected
- * rather than thrown, so one bad page doesn't drop the rest of the batch.
+ * Writes scraped opportunities into the "Opportunities Feed" database,
+ * each with a heuristic Score already filled in. Notion-sourced
+ * opportunities are skipped -- they already live in Notion, writing them
+ * back would be circular. Per-item failures are collected rather than
+ * thrown, so one bad page doesn't drop the rest of the batch.
  */
 export async function writeToFeed(opportunities, { feedDatabaseId = process.env.NOTION_FEED_DATABASE_ID } = {}) {
   if (!feedDatabaseId) throw new Error('NOTION_FEED_DATABASE_ID is not set');

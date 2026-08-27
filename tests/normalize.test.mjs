@@ -109,6 +109,15 @@ describe('isFellowship', () => {
   it('does not match an unrelated event', () => {
     assert.equal(isFellowship({ title: 'AI Hackathon', tags: ['AI'], description: 'A weekend hackathon.' }), false);
   });
+
+  it('ignores a stray "grant" mention in the description of an unrelated event', () => {
+    const opp = {
+      title: 'UA Online Miltech Conference 2026',
+      tags: [],
+      description: 'Conference about aligning industry needs with available grants (гранти) and financing.',
+    };
+    assert.equal(isFellowship(opp), false);
+  });
 });
 
 describe('applyEventPaymentPolicy', () => {
