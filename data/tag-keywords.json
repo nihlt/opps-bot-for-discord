@@ -1,0 +1,29 @@
+[
+  {
+    "tag": "AI",
+    "tokens": ["AI", "ШІ"],
+    "patterns": [
+      "artificial\\s+intelligence",
+      "штучн\\p{L}*\\s+інтелект\\p{L}*"
+    ]
+  },
+  {
+    "tag": "NLP",
+    "tokens": ["NLP"],
+    "patterns": ["natural\\s+language\\s+processing"]
+  },
+  {
+    "tag": "internship",
+    "tokens": ["internship"],
+    "patterns": [
+      "стажуван\\p{L}*",
+      "інтернатур\\p{L}*",
+      "інтерншип\\p{L}*"
+    ]
+  },
+  {
+    "tag": "олімпіада",
+    "tokens": ["olympiad"],
+    "patterns": ["олімпіад\\p{L}*"]
+  }
+]

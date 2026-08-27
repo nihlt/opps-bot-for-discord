@@ -1,0 +1,4 @@
+{
+  "good": ["аналітик", "analyst", "розробник", "developer", "інженер", "engineer", "програміст", "programmer", "стажування", "internship", "інтерн", "intern"],
+  "bad": ["qa", "aqa", "тестувальник", "tester", "support", "підтримк", "системний адміністратор", "sysadmin", "devops", "creator", "креатор", "контент", "content", "відео", "video", "android"]
+}

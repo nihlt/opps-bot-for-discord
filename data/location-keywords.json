@@ -1,0 +1,38 @@
+[
+  {
+    "location": "Online",
+    "keywords": ["online", "онлайн", "віддалено", "remote", "virtual"]
+  },
+  {
+    "location": "Україна",
+    "keywords": ["україна", "україні", "українців", "ukraine", "ukrainian"]
+  },
+  {
+    "location": "Київ",
+    "keywords": ["київ", "києві", "kyiv", "kiev"]
+  },
+  {
+    "location": "Львів",
+    "keywords": ["львів", "львові", "lviv"]
+  },
+  {
+    "location": "Житомир",
+    "keywords": ["житомир", "житомирі", "zhytomyr"]
+  },
+  {
+    "location": "Варшава",
+    "keywords": ["варшава", "варшаві", "warsaw"]
+  },
+  {
+    "location": "США",
+    "keywords": ["сша", "usa", "united states", "berkeley", "las vegas"]
+  },
+  {
+    "location": "Естонія",
+    "keywords": ["естонія", "естонії", "estonia"]
+  },
+  {
+    "location": "Європа",
+    "keywords": ["європа", "європі", "europe", "eu", "єс"]
+  }
+]

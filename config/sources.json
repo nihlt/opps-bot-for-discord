@@ -1,0 +1,12 @@
+[
+  {"id": "notion", "module": "notion.js", "kind": "event", "enabled": true},
+  {"id": "dou-ai", "module": "dou-calendar.js", "kind": "event", "enabled": true, "tag": "AI"},
+  {"id": "dou-hackathon", "module": "dou-calendar.js", "kind": "event", "enabled": true, "tag": "хакатон"},
+  {"id": "dou-competition", "module": "dou-calendar.js", "kind": "event", "enabled": true, "tag": "змагання"},
+  {"id": "ain", "module": "ain-opportunities.js", "kind": "event", "enabled": true},
+  {"id": "kaggle", "module": "kaggle-competitions.js", "kind": "event", "enabled": true},
+  {"id": "kse-news", "module": "kse-news.js", "kind": "event", "enabled": true},
+  {"id": "djinni", "module": "djinni.js", "kind": "job", "enabled": true},
+  {"id": "work-ua", "module": "work-ua.js", "kind": "job", "enabled": true},
+  {"id": "robota-ua", "module": "robota-ua.js", "kind": "job", "enabled": false, "disabledReason": "Cloudflare blocks headless access"}
+]
