@@ -1,6 +1,11 @@
 import { GoogleAuth } from 'google-auth-library';
 
-const DESCRIPTION_EXCERPT_LENGTH = 800;
+// Real descriptions run up to ~4000 chars, and prize/stipend amounts are
+// often mentioned near the end (e.g. an essay contest's $1000 prize sat
+// at character 3524 of a 3966-char description) -- 800 was silently
+// cutting that off before the model ever saw it. Gemini's context window
+// comfortably fits this per item even across a full batch.
+const DESCRIPTION_EXCERPT_LENGTH = 4000;
 
 let cachedAuth;
 
