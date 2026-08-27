@@ -5,6 +5,11 @@ messages). This file breaks the build into stages with concrete test
 checkpoints, and marks which parts are safe to run in parallel (multiple
 agents/sessions) vs. must be sequential.
 
+**For how the system actually works today (what's wired in vs. built-but-
+dormant, the two Notion databases, failure modes, known caveats), see
+[docs/README.md](./docs/README.md)** — this file stays focused on
+forward-looking stages/backlog, not on documenting existing behavior.
+
 Secrets already validated live (2026-08-27): `DISCORD_BOT_TOKEN`,
 `DISCORD_CHANNEL_ID` (`#general`), `NOTION_TOKEN`, `NOTION_DATABASE_ID` all
 confirmed working against the real Discord/Notion APIs.
