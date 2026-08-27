@@ -3,9 +3,10 @@ const DARK = { r: 0x24, g: 0x24, b: 0x29 };
 // Discord's light theme the same way a too-dark one vanishes on dark
 // theme (the contrast problem we already hit once with the palette).
 const LIGHT = { r: 0xe8, g: 0xe6, b: 0xe1 };
+const GOLD = 0xc9a86b;
 
-const LOW_PERCENTILE = 0.5;
-const HIGH_PERCENTILE = 0.9;
+const MID_PERCENTILE = 0.5;
+const TOP_PERCENTILE = 0.9;
 
 function lerp(a, b, t) {
   return Math.round(a + (b - a) * t);
@@ -16,29 +17,30 @@ function toHex({ r, g, b }) {
 }
 
 /**
- * Maps a score to a color along a dark -> near-white gradient, based on
- * its PERCENTILE RANK within `allScores` rather than its raw value --
- * the bottom half of any batch always renders as the flat dark color,
- * the top decile always reaches near-white, and the middle 40% ramps
- * between them. This stays meaningful even if the scoring rubric's
- * absolute numbers shift later, since it's always relative to the
- * batch actually being rendered.
+ * Maps a score to an accent color based on its PERCENTILE RANK within
+ * `allScores` (not its raw value), so this stays meaningful even if the
+ * scoring rubric's absolute numbers shift later:
+ *   - bottom 50%: null -- no accent color at all, renders as a plain
+ *     container.
+ *   - top 10%: a flat muted gold (#C9A86B) -- these are the picks.
+ *   - the middle 40%: a gray ramp from dark (#242429) to near-white
+ *     (#E8E6E1), same as before.
  */
 export function percentileColor(score, allScores) {
-  if (!allScores.length) return toHex(DARK);
+  if (!allScores.length) return null;
 
   const sorted = [...allScores].sort((a, b) => a - b);
   // A perfectly flat batch has no meaningful "top" -- default to
   // unhighlighted rather than letting everyone tie for 100th percentile.
-  if (sorted[0] === sorted[sorted.length - 1]) return toHex(DARK);
+  if (sorted[0] === sorted[sorted.length - 1]) return null;
 
   const atOrBelow = sorted.filter((s) => s <= score).length;
   const percentile = atOrBelow / sorted.length;
 
-  if (percentile <= LOW_PERCENTILE) return toHex(DARK);
-  if (percentile >= HIGH_PERCENTILE) return toHex(LIGHT);
+  if (percentile <= MID_PERCENTILE) return null;
+  if (percentile >= TOP_PERCENTILE) return GOLD;
 
-  const t = (percentile - LOW_PERCENTILE) / (HIGH_PERCENTILE - LOW_PERCENTILE);
+  const t = (percentile - MID_PERCENTILE) / (TOP_PERCENTILE - MID_PERCENTILE);
   return toHex({
     r: lerp(DARK.r, LIGHT.r, t),
     g: lerp(DARK.g, LIGHT.g, t),
