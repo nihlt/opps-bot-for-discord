@@ -91,4 +91,21 @@ describe('postDigest', () => {
     assert.ok(payloadSize < 4000, `expected payload under 4000 chars, got ${payloadSize}`);
     assert.ok(JSON.stringify(sent.main.components).includes('…'));
   });
+
+  it('keeps only the first 3 sentences of a longer description, not a mid-word chop', async () => {
+    const { channel, sent } = makeFakeChannel();
+    const description = 'One. Two. Three. Four should be dropped.';
+    await postDigest(channel, [{ ...opp('sentences'), description }]);
+    const payload = JSON.stringify(sent.main.components);
+    assert.ok(payload.includes('One. Two. Three.'));
+    assert.ok(!payload.includes('Four should be dropped'));
+  });
+
+  it('shows a location · score · better-than meta line under each item', async () => {
+    const { channel, sent } = makeFakeChannel();
+    await postDigest(channel, [{ ...opp('meta'), location: 'Lviv' }]);
+    const payload = JSON.stringify(sent.main.components);
+    assert.ok(payload.includes('Lviv · score'));
+    assert.ok(/better than 0\.\d\d/.test(payload));
+  });
 });

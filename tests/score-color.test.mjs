@@ -1,6 +1,23 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
-import { percentileColor } from '../src/discord/score-color.js';
+import { percentileColor, percentileOf } from '../src/discord/score-color.js';
+
+describe('percentileOf', () => {
+  const scores = [10, 20, 30, 40, 50, 60, 70, 80, 90, 100];
+
+  it('returns 1 for the top score', () => {
+    assert.equal(percentileOf(100, scores), 1);
+  });
+
+  it('returns 0.1 for the bottom score', () => {
+    assert.equal(percentileOf(10, scores), 0.1);
+  });
+
+  it('returns 0 for an empty batch or a flat batch', () => {
+    assert.equal(percentileOf(50, []), 0);
+    assert.equal(percentileOf(50, [50, 50, 50]), 0);
+  });
+});
 
 describe('percentileColor', () => {
   const scores = [10, 20, 30, 40, 50, 60, 70, 80, 90, 100];

@@ -17,6 +17,19 @@ function toHex({ r, g, b }) {
 }
 
 /**
+ * Fraction (0-1) of `allScores` this score is at or above -- e.g. 0.9
+ * means it beats 90% of the batch. Used both for the accent color band
+ * and for the "better than 0.NN" line shown under each item.
+ */
+export function percentileOf(score, allScores) {
+  if (!allScores.length) return 0;
+  const sorted = [...allScores].sort((a, b) => a - b);
+  if (sorted[0] === sorted[sorted.length - 1]) return 0;
+  const atOrBelow = sorted.filter((s) => s <= score).length;
+  return atOrBelow / sorted.length;
+}
+
+/**
  * Maps a score to an accent color based on its PERCENTILE RANK within
  * `allScores` (not its raw value), so this stays meaningful even if the
  * scoring rubric's absolute numbers shift later:
@@ -29,14 +42,10 @@ function toHex({ r, g, b }) {
 export function percentileColor(score, allScores) {
   if (!allScores.length) return null;
 
-  const sorted = [...allScores].sort((a, b) => a - b);
-  // A perfectly flat batch has no meaningful "top" -- default to
-  // unhighlighted rather than letting everyone tie for 100th percentile.
-  if (sorted[0] === sorted[sorted.length - 1]) return null;
-
-  const atOrBelow = sorted.filter((s) => s <= score).length;
-  const percentile = atOrBelow / sorted.length;
-
+  const percentile = percentileOf(score, allScores);
+  // percentileOf returns 0 for a perfectly flat batch (no meaningful
+  // "top") as well as for a genuinely bottom-ranked score -- both cases
+  // correctly fall through to "no accent" below.
   if (percentile <= MID_PERCENTILE) return null;
   if (percentile >= TOP_PERCENTILE) return GOLD;
 

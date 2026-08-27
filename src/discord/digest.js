@@ -10,18 +10,23 @@ import {
   ButtonStyle,
 } from 'discord.js';
 import { scoreOpportunity } from '../lib/scoring.js';
-import { percentileColor } from './score-color.js';
+import { percentileColor, percentileOf } from './score-color.js';
 
 const MAIN_MESSAGE_LIMIT = 3;
 const THREAD_CHUNK_SIZE = 5;
-// Components V2 caps a whole message's displayable text at 4000 chars;
-// with up to 5 items per message this keeps every message safely under
-// that regardless of how long a scraped description happens to be.
-const MAX_DESCRIPTION_LENGTH = 300;
+const MAX_DESCRIPTION_SENTENCES = 3;
+// Fallback safety net for text with no sentence-ending punctuation at
+// all -- Components V2 caps a whole message's displayable text at 4000
+// chars, and with up to 5 items per message this keeps each one bounded
+// regardless of how long a scraped description happens to be.
+const MAX_DESCRIPTION_LENGTH = 400;
 
-function truncate(text, maxLength) {
+/** Takes the first 1-3 sentences of a description for context, not a mid-word chop. */
+function firstSentences(text, maxSentences = MAX_DESCRIPTION_SENTENCES, maxLength = MAX_DESCRIPTION_LENGTH) {
   if (!text) return null;
-  return text.length > maxLength ? `${text.slice(0, maxLength)}…` : text;
+  const sentences = text.match(/[^.!?]+[.!?]+(?:\s+|$)/g) || [text];
+  const picked = sentences.slice(0, maxSentences).join('').trim() || text.trim();
+  return picked.length > maxLength ? `${picked.slice(0, maxLength)}…` : picked;
 }
 
 function pluralizeOpportunity(count) {
@@ -38,10 +43,13 @@ function divider() {
 
 function itemContainer(opportunity, allScores) {
   const score = scoreOpportunity(opportunity);
+  const percentile = percentileOf(score, allScores);
   const color = percentileColor(score, allScores);
-  const detailLine = [opportunity.location, opportunity.payment].filter(Boolean).join(' · ');
-  const description = truncate(opportunity.description, MAX_DESCRIPTION_LENGTH);
-  const body = [description, detailLine].filter(Boolean).join('\n') || '—';
+  const description = firstSentences(opportunity.description);
+  const metaLine = [opportunity.location, `score ${score}`, `better than ${percentile.toFixed(2)}`]
+    .filter(Boolean)
+    .join(' · ');
+  const body = [description, metaLine].filter(Boolean).join('\n') || '—';
 
   const container = new ContainerBuilder()
     .addTextDisplayComponents(new TextDisplayBuilder().setContent(`**${opportunity.title}**`))
