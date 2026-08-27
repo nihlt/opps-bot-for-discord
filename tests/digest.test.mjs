@@ -81,6 +81,22 @@ describe('splitForDigestByCategory', () => {
     const events = main.find((g) => g.category === 'Events');
     assert.equal(events.items[0].title, 'AI Meetup Lviv');
   });
+
+  it('breaks an equal-score tie by earliest-discovered first, not incidental array order', () => {
+    const later = opp('Zeta Meetup', { firstSeenAt: '2026-08-20T00:00:00.000Z' });
+    const earlier = opp('Alpha Meetup', { firstSeenAt: '2026-08-10T00:00:00.000Z' });
+    const { main } = splitForDigestByCategory([later, earlier]);
+    const events = main.find((g) => g.category === 'Events');
+    assert.equal(events.items[0].title, 'Alpha Meetup');
+  });
+
+  it('falls back to title alphabetical when scores tie and neither has a firstSeenAt', () => {
+    const z = opp('Zeta Meetup');
+    const a = opp('Alpha Meetup');
+    const { main } = splitForDigestByCategory([z, a]);
+    const events = main.find((g) => g.category === 'Events');
+    assert.equal(events.items[0].title, 'Alpha Meetup');
+  });
 });
 
 describe('postDigest', () => {

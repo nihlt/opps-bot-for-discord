@@ -130,8 +130,21 @@ function chunk(array, size) {
   return chunks;
 }
 
+/**
+ * Sorts by score descending; ties (common -- scoreOpportunity() only has
+ * so many achievable values) break by earliest-discovered first, then by
+ * title, so equal-score items land in a deliberate, explainable order
+ * instead of whatever order they happened to survive filtering in.
+ */
 function sortByScoreDesc(opportunities) {
-  return [...opportunities].sort((a, b) => scoreOpportunity(b) - scoreOpportunity(a));
+  return [...opportunities].sort((a, b) => {
+    const scoreDiff = scoreOpportunity(b) - scoreOpportunity(a);
+    if (scoreDiff !== 0) return scoreDiff;
+    const aSeen = a.firstSeenAt ? Date.parse(a.firstSeenAt) : Infinity;
+    const bSeen = b.firstSeenAt ? Date.parse(b.firstSeenAt) : Infinity;
+    if (aSeen !== bSeen) return aSeen - bSeen;
+    return (a.title || '').localeCompare(b.title || '');
+  });
 }
 
 /**

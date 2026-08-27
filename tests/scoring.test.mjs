@@ -27,6 +27,43 @@ describe('scoreOpportunity', () => {
     assert.ok(baseline > senior);
   });
 
+  it('rewards a lower required English level for a job, penalizes a high one', () => {
+    const none = scoreOpportunity({ kind: 'job', title: 'AI Engineer', location: '1 рік досвіду, Англійська - Немає' });
+    const b1 = scoreOpportunity({ kind: 'job', title: 'AI Engineer', location: '1 рік досвіду, Англійська - B1' });
+    const b2 = scoreOpportunity({ kind: 'job', title: 'AI Engineer', location: '1 рік досвіду, Англійська - B2' });
+    const c1 = scoreOpportunity({ kind: 'job', title: 'AI Engineer', location: '1 рік досвіду, Англійська - C1' });
+    assert.ok(none > b1 && b1 > b2 && b2 > c1);
+  });
+
+  it('does not scan a job description for Lviv -- unlike an event, where location is a real place, a job posting\'s location field is work-format/experience/English text, and mentioning the office city in ad copy is not a reliable signal', () => {
+    const officeJob = scoreOpportunity({
+      kind: 'job',
+      title: 'AI Engineer',
+      location: 'Тільки офіс, 1 рік досвіду, Англійська - B2',
+      description: 'This role requires working on-site at our Lviv office.',
+    });
+    const sameJobNoDescription = scoreOpportunity({
+      kind: 'job',
+      title: 'AI Engineer',
+      location: 'Тільки офіс, 1 рік досвіду, Англійська - B2',
+    });
+    assert.equal(officeJob, sameJobNoDescription);
+  });
+
+  it('still scans an event\'s description for Lviv (unlike jobs)', () => {
+    const withLviv = scoreOpportunity({ kind: 'event', title: 'AI Meetup', tags: [], location: '', description: 'Join us at our Lviv venue.' });
+    const without = scoreOpportunity({ kind: 'event', title: 'AI Meetup', tags: [], location: '', description: 'Join us online.' });
+    assert.ok(withLviv > without);
+  });
+
+  it('smooths the experience-years bonus into more than 3 steps so jobs clustered around "1 рік" spread out', () => {
+    const halfYear = scoreOpportunity({ kind: 'job', title: 'AI Engineer', location: '0.5 років досвіду' });
+    const oneYear = scoreOpportunity({ kind: 'job', title: 'AI Engineer', location: '1 рік досвіду' });
+    const oneAndHalf = scoreOpportunity({ kind: 'job', title: 'AI Engineer', location: '1.5 років досвіду' });
+    const twoYears = scoreOpportunity({ kind: 'job', title: 'AI Engineer', location: '2 роки досвіду' });
+    assert.ok(halfYear > oneYear && oneYear > oneAndHalf && oneAndHalf > twoYears);
+  });
+
   it('stays within 0-100', () => {
     const score = scoreOpportunity({ kind: 'event', title: 'AI Fellowship', tags: [], location: 'Львів' });
     assert.ok(score <= 100 && score >= 0);

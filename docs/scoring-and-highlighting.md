@@ -26,16 +26,47 @@ audience specifically, not a general "how good is this opportunity" score.
   and the "Hackathons" bucket can never quietly disagree with each other)
   → 55 (bumped from an initial 45 per feedback — "hackathons and
   competitions deserve the same tier as internships"). Generic event → 25.
-  `kind: 'job'` is scored on a *different* axis
-  entirely: base 30, +15 if the (djinni/work-ua) location string implies
-  ≤0.5 years of experience required, -15 if it implies ≥2 years — a rough
-  proxy for "can a 1st-4th-year actually get this."
-- **Location bonus** (the biggest single lever): Lviv mention → +25 (the
-  department's home city, zero travel cost). Online/remote mention → +10.
-  Anywhere else → +0.
+  `kind: 'job'` is scored on a *different* axis entirely: base 30, plus a
+  4-step experience curve (`yearsOfExperienceBonus()`: ≤0.5y → +15, <1.5y
+  → +8, <2y → +0, ≥2y → −15 — smoothed from a flat 3-way split because
+  djinni jobs cluster heavily around "1 рік" and used to all tie there),
+  plus a required-English-level bonus (`englishLevelBonus()`, parsed from
+  the same djinni field: None/A1/A2 → +10, B1 → +5, B2 → 0, C1/C2 → −10 —
+  lower bar is more accessible for the target audience, and it's the one
+  axis that actually varies across otherwise-identical junior postings).
+- **Location bonus** (the biggest single lever, **events only**): Lviv
+  mention → +25 (the department's home city, zero travel cost).
+  Online/remote mention → +10. Anywhere else → +0. **For jobs, this skips
+  the description entirely** — a job's `location` field isn't a place
+  (djinni packs work-format/experience/English/industry into it instead,
+  see [discord-integration.md](./discord-integration.md#category-assignment-categorizeopportunity-priority-order)
+  for the same fact affecting category assignment), and scanning a job ad's
+  free-text description for "Lviv" is a coin flip most on-site postings
+  never confirm — better to score it as unknown than sometimes-right.
 - **Audience-fit bonus**: AI/ML/NLP keyword match anywhere in title/
   description/tags → +5.
 - Clamped to [0, 100].
+
+### Job scores used to collide constantly — fixed by adding real signal, not by faking one
+
+Live example that surfaced this: three djinni AI jobs — two "Тільки
+віддалено, 0.5 років досвіду" postings differing only in required English
+(A1 vs B1), and a third, "Тільки офіс, 1 рік досвіду" — all showed
+**score 60**. The first two tied because English wasn't scored at all yet;
+the third only matched by accident, because its scraped description
+happened to mention "Lviv office" and picked up the (event-oriented) Lviv
+bonus through free-text scanning. Fixed two ways: added the English-level
+bonus above (real per-audience signal, not decoration) and stopped
+scanning job descriptions for Lviv (see above) so a job's score no longer
+depends on whether its ad copy happens to name a city. Remaining ties
+(e.g. several "1 рік, офіс, no English requirement" postings) are now
+*honest* ties — they really do share every scored attribute — rather than
+coincidental ones.
+
+When a score still ties, ordering isn't left to incidental array order:
+`discord/digest.js`'s `sortByScoreDesc()` breaks ties by earliest
+`firstSeenAt` first, then title, so equal-score items land in a
+deliberate, explainable order.
 
 ### `isFellowship()` only checks title + tags, not description
 
