@@ -7,21 +7,21 @@ See [README.md](./README.md) first for the map.
 ```mermaid
 flowchart TD
     T[GitHub Actions: schedule or workflow_dispatch trigger] --> L[Discord login]
-    L -->|login fails| G[GitHub's built-in workflow-failure email\nno Discord channel exists yet to alert through]
-    L -->|success| S[scrapeAllSources\n9 sources, bounded concurrency]
+    L -->|login fails| G["GitHub's built-in workflow-failure email<br/>no Discord channel exists yet to alert through"]
+    L -->|success| S["scrapeAllSources<br/>9 sources, bounded concurrency"]
     S --> P[applyEventPaymentPolicy per item]
-    P --> D[appendNewEvents\ndedupe vs data/events.jsonl]
-    D --> V[attachSummaries\nVertex AI, one batched call]
+    P --> D["appendNewEvents<br/>dedupe vs data/events.jsonl"]
+    D --> V["attachSummaries<br/>Vertex AI, one batched call"]
     V -->|fails| V2[".summary = null for the whole batch"]
-    V --> N[writeToFeed\nNotion Opportunities Feed]
-    V --> C[postDigest\ntop 3 in channel + thread overflow]
+    V --> N["writeToFeed<br/>Notion Opportunities Feed"]
+    V --> C["postDigest<br/>top 3 in channel + thread overflow"]
     S -->|a source fails| I[issues.push]
     V2 --> I
     N -->|fails| I
     C -->|fails| I
     I --> A{issues non-empty?}
-    A -->|yes| M[notifyAdmins: one consolidated DM]
-    A -->|no| E[exit 0]
+    A -->|yes| M["notifyAdmins: one consolidated DM"]
+    A -->|no| E["exit 0"]
     M --> E
 ```
 

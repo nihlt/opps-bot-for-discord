@@ -59,9 +59,13 @@ jobs:
           NOTION_TOKEN: ${{ secrets.NOTION_TOKEN }}
           NOTION_DATABASE_ID: ${{ secrets.NOTION_DATABASE_ID }}
           NOTION_FEED_DATABASE_ID: ${{ secrets.NOTION_FEED_DATABASE_ID }}
-          GEMINI_MODEL: ${{ secrets.GEMINI_MODEL }}
-          GOOGLE_CLOUD_PROJECT: ${{ secrets.GOOGLE_CLOUD_PROJECT }}
-          GOOGLE_CLOUD_LOCATION: ${{ secrets.GOOGLE_CLOUD_LOCATION }}
+          # Config, not credentials -- literal here (not secrets.*) so a
+          # missing/wrong value shows up in a diff instead of silently
+          # resolving to an empty string at runtime (a GitHub secret that
+          # doesn't exist substitutes '', with no error).
+          GEMINI_MODEL: gemini-3.7-flash
+          GOOGLE_CLOUD_PROJECT: gen-lang-client-0737937428
+          GOOGLE_CLOUD_LOCATION: global
           GOOGLE_APPLICATION_CREDENTIALS: ${{ runner.temp }}/gcp-key.json
           SCRAPE_CONCURRENCY: 3
 
