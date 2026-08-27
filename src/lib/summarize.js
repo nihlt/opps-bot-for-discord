@@ -51,7 +51,11 @@ description), you MUST include that concrete figure in the summary --
 e.g. "$1000 для студента і викладача", "приз 100 000 грн". This is the
 single most decisive fact for whether someone bothers to open the link,
 so never drop it silently even if the rest of the sentence has to be
-shorter to fit.
+shorter to fit. Place the money figure at the very START or the very END
+of the sentence, never buried in the middle -- readers skim, and a number
+in the middle gets lost. Always include the currency symbol/code (₴, $,
+грн, USD) right next to the number, never a bare digit -- the currency
+mark itself is part of what catches the eye.
 
 Respond with ONLY a JSON array, no markdown fences, no commentary, in this exact shape:
 [{"id": "<id>", "summary": "<one sentence>"}]
