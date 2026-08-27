@@ -16,15 +16,49 @@ opportunities. Built, unit-tested, and demonstrated live via one-off
 scripts many times during development before being wired into
 `runPipeline()` for real.
 
-What it does: sorts by `scoreOpportunity()` descending, puts the top 3 in
-the channel message itself (Components V2 `Container`s with a "Відкрити"
-link button per item), pushes everything else into a **thread** off that
-message, chunked 5-per-follow-up. Accent color per item comes from
-`percentileColor()` against `scoringPopulation` (see
+What it does: groups opportunities into five categories —
+`CATEGORY_ORDER = ['Hackathons', 'Events', 'Fellowship Programs', 'Jobs',
+'Online Events']` — via `categorizeOpportunity()`. **Each non-empty
+category gets its own channel message**: a bold header line, then its top
+3 items by `scoreOpportunity()` (Components V2 `Container`s with a
+"Відкрити" link button per item), and — if it has more than 3 — its own
+**thread** off that category's message for the rest, chunked
+5-per-follow-up. Accent color per item comes from `percentileColor()`
+against `scoringPopulation` (see
 [scoring-and-highlighting.md](./scoring-and-highlighting.md) for the
 "almost always pass the full catalogue, not just today's batch" trap).
 Description text is `opportunity.summary || opportunity.hook` — **no
 fallback to the raw scraped description**, by explicit design (see below).
+
+### Why one message per category, not one combined message
+
+The first version of this tried a single message with all five
+categories, a bold header per category, and a bigger divider between
+groups. It hit a hard Discord limit almost immediately:
+`COMPONENT_MAX_TOTAL_COMPONENTS_EXCEEDED` — a single message's component
+tree (containers, sections, buttons, text displays, counted recursively,
+not just top-level) is capped at **40 total**. Two fully-populated
+categories (3 items each) already sit at ~37; a third pushes past it —
+meaning a combined message would work on a quiet day and randomly fail on
+a busy one. Splitting into one message per category sidesteps this
+entirely: each category's own message is the same small shape this format
+always used (well under the cap), regardless of how many categories have
+content that day.
+
+### Category assignment (`categorizeOpportunity()`, priority order)
+
+1. `kind === 'job'` → **Jobs** (unambiguous, checked first).
+2. `isFellowship()` (title/tags) → **Fellowship Programs**.
+3. `isHackathon()` (`src/lib/scoring.js` — by `sourceId` or a title/tag
+   keyword match; exported specifically so this and the score bump can
+   never disagree) → **Hackathons**.
+4. `location` matches `/online|онлайн/i` → **Online Events**.
+5. Everything else → **Events**.
+
+An item that could fit more than one bucket resolves to whichever check
+comes first — e.g. an online hackathon lands in **Hackathons**, not
+**Online Events**, because Jobs/Fellowship Programs/Hackathons are more
+specific signals than the two catch-alls.
 
 ### Why Components V2 instead of classic embeds
 
@@ -94,7 +128,10 @@ of what happens when each dependency is down.
 
 ## Formatting reference (current digest.js output shape)
 
+One message per non-empty category:
+
 ```
+[TextDisplay] **{CATEGORY NAME, uppercased}**
 [Container, accent = percentileColor(score, scoringPopulation) or none]
   **{title}**
   [Section, or a plain text block if opportunity.link is missing]
@@ -102,6 +139,7 @@ of what happens when each dependency is down.
 
     {location} · from {domain} · score {N} · {"better than 0.NN" or "one of the best"}
     [Button: "Відкрити" -> opportunity.link]
+... (up to 3 items per category, small dividers between them)
 ```
 
 `{domain}` is `opportunity.link`'s hostname (`www.` stripped), omitted if
@@ -114,9 +152,12 @@ skim-reading) and always carry a currency mark, since "who opens an essay
 contest link if they don't know 1 student + 1 teacher win $1000" was the
 motivating case that got this added.
 
-Top 3 by score go in the channel message; the rest go into a thread named
-`Ще N можливостей/можливість` (correct Ukrainian pluralization), chunked 5
-items per follow-up message in the thread.
+Top 3 by score, per category, go in that category's own channel message;
+each category's own remainder (if any) goes into its own thread off its
+own message, named `Ще N можливостей/можливість` (correct Ukrainian
+pluralization, N = that category's overflow count only), chunked 5 items
+per follow-up message in the thread. A run with, say, 3 non-empty
+categories produces 3 separate channel messages, not one.
 
 ## Admin DM alerts
 

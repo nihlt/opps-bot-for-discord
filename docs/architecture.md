@@ -14,7 +14,7 @@ flowchart TD
     D --> V["attachSummaries<br/>Vertex AI, one batched call"]
     V -->|fails| V2[".summary = null for the whole batch"]
     V --> N["writeToFeed<br/>Notion Opportunities Feed"]
-    V --> C["postDigest<br/>top 3 in channel + thread overflow"]
+    V --> C["postDigest<br/>one message per category, top 3 + thread overflow each"]
     S -->|a source fails| I[issues.push]
     V2 --> I
     N -->|fails| I
@@ -63,15 +63,16 @@ config/sources.json (9 registered sources, 1 disabled)
         ├──────────────────────────────┐
         ▼                              ▼
   writeToFeed() (src/lib/notion-feed.js)   postDigest() (src/discord/digest.js)
-  — writes NEW, non-notion-sourced          — top 3 by score in the channel
-    opportunities to "Opportunities Feed"     message, the rest in a thread,
-    in Notion, each with a heuristic          chunked 5/message. Ranked
-    Score (src/lib/scoring.js) and a          against the FULL catalogue
-    Summary when one came back from the       (loadEvents() re-read after
-    Vertex AI call above (omitted, not         append), not just today's
-    left blank with a placeholder,             batch. Shows .summary if
-    otherwise).                                present, otherwise no
-                                                description line at all.
+  — writes NEW, non-notion-sourced          — groups into 5 categories
+    opportunities to "Opportunities Feed"     (Hackathons/Events/Fellowship
+    in Notion, each with a heuristic          Programs/Jobs/Online Events),
+    Score (src/lib/scoring.js) and a          one channel message PER
+    Summary when one came back from the       category (top 3 by score),
+    Vertex AI call above (omitted, not         each with its own overflow
+    left blank with a placeholder,             thread. Ranked against the
+    otherwise).                                FULL catalogue (loadEvents()
+                                                re-read after append), not
+                                                just today's batch.
         │                                       │
         └───────────────────┬───────────────────┘
                              ▼
@@ -188,9 +189,9 @@ and [resilience.md](./resilience.md) for the remaining honest caveats
 - `src/lib/summarize.js` — Vertex AI (Gemini) one-sentence summarization,
   batched, JSON-mode, OAuth2/ADC auth.
 - `src/discord/client.js` — logs into Discord, resolves on ready.
-- `src/discord/digest.js` — the top-3-plus-thread Components V2 digest,
-  the sole production posting path. See
-  [discord-integration.md](./discord-integration.md).
+- `src/discord/digest.js` — the categorized (5 buckets), top-3-per-
+  category-plus-thread Components V2 digest, the sole production posting
+  path. See [discord-integration.md](./discord-integration.md).
 - `src/discord/score-color.js` — percentile-to-accent-color mapping used
   by `digest.js`.
 - `src/discord/alerts.js` — best-effort admin DMs, never throws.

@@ -9,11 +9,29 @@ import {
   ButtonBuilder,
   ButtonStyle,
 } from 'discord.js';
-import { scoreOpportunity } from '../lib/scoring.js';
+import { scoreOpportunity, isHackathon } from '../lib/scoring.js';
+import { isFellowship } from '../lib/normalize.js';
 import { percentileColor, percentileOf } from './score-color.js';
 
 const MAIN_MESSAGE_LIMIT = 3;
 const THREAD_CHUNK_SIZE = 5;
+
+// Display AND classification-priority order: an item that could fit more
+// than one bucket (e.g. an online hackathon) resolves to whichever comes
+// first in this list -- Jobs and Fellowship Programs are the most
+// specific/unambiguous signals, so they're checked ahead of the two
+// broader catch-alls (Online Events, Events).
+const CATEGORY_ORDER = ['Hackathons', 'Events', 'Fellowship Programs', 'Jobs', 'Online Events'];
+const onlineLocationPattern = /online|онлайн/i;
+
+/** Which of CATEGORY_ORDER an opportunity belongs to -- see CATEGORY_ORDER's comment for priority. */
+export function categorizeOpportunity(opportunity) {
+  if (opportunity.kind === 'job') return 'Jobs';
+  if (isFellowship(opportunity)) return 'Fellowship Programs';
+  if (isHackathon(opportunity)) return 'Hackathons';
+  if (onlineLocationPattern.test(opportunity.location || '')) return 'Online Events';
+  return 'Events';
+}
 // Safety cap in case a generated summary runs long -- Components V2 caps
 // a whole message's displayable text at 4000 chars, and with up to 5
 // items per message this keeps each one bounded regardless.
@@ -34,6 +52,10 @@ function pluralizeOpportunity(count) {
 
 function divider() {
   return new SeparatorBuilder().setDivider(true).setSpacing(SeparatorSpacingSize.Small);
+}
+
+function categoryHeader(category) {
+  return new TextDisplayBuilder().setContent(`**${category.toUpperCase()}**`);
 }
 
 function sourceDomain(link) {
@@ -108,20 +130,43 @@ function chunk(array, size) {
   return chunks;
 }
 
-/**
- * Splits a batch into the top N (by score, descending) for the main
- * message and the rest as thread overflow. Pure/testable without touching
- * Discord.
- */
-export function splitForDigest(opportunities, limit = MAIN_MESSAGE_LIMIT) {
-  const sorted = [...opportunities].sort((a, b) => scoreOpportunity(b) - scoreOpportunity(a));
-  return { main: sorted.slice(0, limit), overflow: sorted.slice(limit) };
+function sortByScoreDesc(opportunities) {
+  return [...opportunities].sort((a, b) => scoreOpportunity(b) - scoreOpportunity(a));
 }
 
 /**
- * Posts a batch of opportunities as a digest: at most 3 (by score) go in
- * the channel message itself; everything else is pushed into a thread off
- * that message, in chunks so no single follow-up gets too dense.
+ * Groups a batch by CATEGORY_ORDER and, within each category, splits the
+ * top N (by score, descending) for the main message from the rest as
+ * thread overflow. Categories with zero items in a given bucket are
+ * omitted from that bucket entirely (no empty headers). Pure/testable
+ * without touching Discord.
+ */
+export function splitForDigestByCategory(opportunities, limit = MAIN_MESSAGE_LIMIT) {
+  const main = [];
+  const overflow = [];
+  for (const category of CATEGORY_ORDER) {
+    const sorted = sortByScoreDesc(opportunities.filter((o) => categorizeOpportunity(o) === category));
+    if (sorted.length === 0) continue;
+    if (sorted.slice(0, limit).length > 0) main.push({ category, items: sorted.slice(0, limit) });
+    if (sorted.slice(limit).length > 0) overflow.push({ category, items: sorted.slice(limit) });
+  }
+  return { main, overflow };
+}
+
+/**
+ * Posts a batch of opportunities as a digest, grouped into
+ * CATEGORY_ORDER's categories (Hackathons, Events, Fellowship Programs,
+ * Jobs, Online Events). Each non-empty category gets its OWN channel
+ * message (header + up to 3 items by score) and, if it has more than 3,
+ * its own thread for the rest, chunked at 5 per follow-up.
+ *
+ * One message per category rather than one combined message for all of
+ * them -- Discord caps a single message's component tree (containers,
+ * sections, buttons, text displays, all counted recursively) at 40 total.
+ * Two fully-populated categories already sit at ~37; a third pushes past
+ * it. A single category's own message (well under the cap, the same
+ * shape this format always used pre-categorization) never risks that,
+ * regardless of how many categories have content on a given day.
  *
  * The accent color and "better than 0.NN" figure are percentiles against
  * `scoringPopulation` (the whole known catalogue, e.g. every stored
@@ -130,25 +175,36 @@ export function splitForDigest(opportunities, limit = MAIN_MESSAGE_LIMIT) {
  * meaningless (a single mediocre item could look "top 10%" of a batch of
  * 3). Defaults to `opportunities` itself only if no broader population is
  * given (e.g. in tests, or a first run with nothing else on record yet).
+ *
+ * Returns the first category's message (there is no longer one single
+ * "the" digest message once categories span more than one message).
  */
 export async function postDigest(channel, opportunities, { scoringPopulation = opportunities } = {}) {
   if (opportunities.length === 0) return null;
 
   const allScores = scoringPopulation.map(scoreOpportunity);
-  const { main, overflow } = splitForDigest(opportunities);
+  const { main, overflow } = splitForDigestByCategory(opportunities);
+  if (main.length === 0) return null;
 
-  const mainMessage = await channel.send({
-    flags: MessageFlags.IsComponentsV2,
-    components: buildComponents(main, allScores),
-  });
+  const overflowByCategory = new Map(overflow.map((group) => [group.category, group.items]));
+  let firstMessage = null;
 
-  if (overflow.length > 0) {
-    const thread = await mainMessage.startThread({
-      name: `Ще ${overflow.length} ${pluralizeOpportunity(overflow.length)}`,
+  for (const { category, items } of main) {
+    const categoryMessage = await channel.send({
+      flags: MessageFlags.IsComponentsV2,
+      components: [categoryHeader(category), ...buildComponents(items, allScores)],
+    });
+    firstMessage ??= categoryMessage;
+
+    const overflowItems = overflowByCategory.get(category) || [];
+    if (overflowItems.length === 0) continue;
+
+    const thread = await categoryMessage.startThread({
+      name: `Ще ${overflowItems.length} ${pluralizeOpportunity(overflowItems.length)}`,
       autoArchiveDuration: ThreadAutoArchiveDuration.OneWeek,
     });
 
-    for (const group of chunk(overflow, THREAD_CHUNK_SIZE)) {
+    for (const group of chunk(overflowItems, THREAD_CHUNK_SIZE)) {
       await thread.send({
         flags: MessageFlags.IsComponentsV2,
         components: buildComponents(group, allScores),
@@ -156,5 +212,5 @@ export async function postDigest(channel, opportunities, { scoringPopulation = o
     }
   }
 
-  return mainMessage;
+  return firstMessage;
 }

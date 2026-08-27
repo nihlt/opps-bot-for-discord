@@ -19,10 +19,14 @@ audience specifically, not a general "how good is this opportunity" score.
 
 - **Base, by category** (mutually exclusive, checked in this order):
   fellowship/stipend (`isFellowship()`, checks title+tags only — see below)
-  → 65. Internship tag → 55. Hackathon/competition (by `sourceId` or a
-  title/tag keyword match) → 55 (bumped from an initial 45 per feedback —
-  "hackathons and competitions deserve the same tier as internships").
-  Generic event → 25. `kind: 'job'` is scored on a *different* axis
+  → 65. Internship tag → 55. Hackathon/competition (`isHackathon()`, by
+  `sourceId` or a title/tag keyword match — also exported and reused by
+  `discord/digest.js`'s category grouping, see
+  [discord-integration.md](./discord-integration.md), so the score bump
+  and the "Hackathons" bucket can never quietly disagree with each other)
+  → 55 (bumped from an initial 45 per feedback — "hackathons and
+  competitions deserve the same tier as internships"). Generic event → 25.
+  `kind: 'job'` is scored on a *different* axis
   entirely: base 30, +15 if the (djinni/work-ua) location string implies
   ≤0.5 years of experience required, -15 if it implies ≥2 years — a rough
   proxy for "can a 1st-4th-year actually get this."
