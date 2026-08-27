@@ -14,19 +14,14 @@ import { percentileColor, percentileOf } from './score-color.js';
 
 const MAIN_MESSAGE_LIMIT = 3;
 const THREAD_CHUNK_SIZE = 5;
-const MAX_DESCRIPTION_SENTENCES = 3;
-// Fallback safety net for text with no sentence-ending punctuation at
-// all -- Components V2 caps a whole message's displayable text at 4000
-// chars, and with up to 5 items per message this keeps each one bounded
-// regardless of how long a scraped description happens to be.
+// Safety cap in case a generated summary runs long -- Components V2 caps
+// a whole message's displayable text at 4000 chars, and with up to 5
+// items per message this keeps each one bounded regardless.
 const MAX_DESCRIPTION_LENGTH = 400;
 
-/** Takes the first 1-3 sentences of a description for context, not a mid-word chop. */
-function firstSentences(text, maxSentences = MAX_DESCRIPTION_SENTENCES, maxLength = MAX_DESCRIPTION_LENGTH) {
+function truncate(text, maxLength = MAX_DESCRIPTION_LENGTH) {
   if (!text) return null;
-  const sentences = text.match(/[^.!?]+[.!?]+(?:\s+|$)/g) || [text];
-  const picked = sentences.slice(0, maxSentences).join('').trim() || text.trim();
-  return picked.length > maxLength ? `${picked.slice(0, maxLength)}…` : picked;
+  return text.length > maxLength ? `${text.slice(0, maxLength)}…` : text;
 }
 
 function pluralizeOpportunity(count) {
@@ -54,13 +49,12 @@ function itemContainer(opportunity, allScores) {
   const score = scoreOpportunity(opportunity);
   const percentile = percentileOf(score, allScores);
   const color = percentileColor(score, allScores);
-  // `hook` isn't part of our own scraped Opportunity shape -- it's a
-  // one-sentence concrete-benefit blurb the scheduled Claude scoring
-  // agent writes into Notion's "Hook" property alongside Score. Once
-  // there's a step that reads that back and attaches it here, it wins
-  // over the raw scraped description (which is usually promotional
-  // filler from the source site, not what the reader actually gets).
-  const description = opportunity.hook || firstSentences(opportunity.description);
+  // `summary` (our own Gemini-generated one-liner) wins over `hook` (the
+  // scheduled Claude agent's future field in Notion). Deliberately no
+  // fallback to the raw scraped description -- that's promotional filler
+  // from the source site, not what the reader actually gets, so if
+  // summarization hasn't run or failed, showing nothing beats showing that.
+  const description = truncate(opportunity.summary || opportunity.hook);
   const metaLine = [opportunity.location, `score ${score}`, percentileLabel(percentile)].filter(Boolean).join(' · ');
   const body = [description, metaLine].filter(Boolean).join('\n') || '—';
 

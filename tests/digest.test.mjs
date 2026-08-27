@@ -83,31 +83,38 @@ describe('postDigest', () => {
     assert.equal(sent.thread.created.name, 'Ще 1 можливість');
   });
 
-  it('truncates a very long description so the message stays under Discord\'s 4000-char component text cap', async () => {
+  it('truncates a very long summary so the message stays under Discord\'s 4000-char component text cap', async () => {
     const { channel, sent } = makeFakeChannel();
-    const longDescription = 'a'.repeat(5000);
-    await postDigest(channel, [{ ...opp('long'), description: longDescription }]);
+    const longSummary = 'a'.repeat(5000);
+    await postDigest(channel, [{ ...opp('long'), summary: longSummary }]);
     const payloadSize = JSON.stringify(sent.main.components).length;
     assert.ok(payloadSize < 4000, `expected payload under 4000 chars, got ${payloadSize}`);
     assert.ok(JSON.stringify(sent.main.components).includes('…'));
   });
 
-  it('prefers opportunity.hook over the raw description when present', async () => {
+  it('prefers opportunity.summary over opportunity.hook when both are present', async () => {
     const { channel, sent } = makeFakeChannel();
-    const hook = 'Learn to ship LLM agents to production in a weekend.';
-    await postDigest(channel, [{ ...opp('hooked'), description: 'Generic promo filler about the venue.', hook }]);
+    const summary = 'Ship an LLM agent end-to-end in a weekend.';
+    await postDigest(channel, [{ ...opp('both'), summary, hook: 'stale hook text' }]);
     const payload = JSON.stringify(sent.main.components);
-    assert.ok(payload.includes(hook));
-    assert.ok(!payload.includes('Generic promo filler'));
+    assert.ok(payload.includes(summary));
+    assert.ok(!payload.includes('stale hook text'));
   });
 
-  it('keeps only the first 3 sentences of a longer description, not a mid-word chop', async () => {
+  it('falls back to hook when summary is absent', async () => {
     const { channel, sent } = makeFakeChannel();
-    const description = 'One. Two. Three. Four should be dropped.';
-    await postDigest(channel, [{ ...opp('sentences'), description }]);
+    const hook = 'Learn to ship LLM agents to production in a weekend.';
+    await postDigest(channel, [{ ...opp('hooked'), hook }]);
     const payload = JSON.stringify(sent.main.components);
-    assert.ok(payload.includes('One. Two. Three.'));
-    assert.ok(!payload.includes('Four should be dropped'));
+    assert.ok(payload.includes(hook));
+  });
+
+  it('never shows the raw scraped description, even with no summary or hook', async () => {
+    const { channel, sent } = makeFakeChannel();
+    const description = 'Generic promotional filler about the venue and its thirteenth edition.';
+    await postDigest(channel, [{ ...opp('plain'), description }]);
+    const payload = JSON.stringify(sent.main.components);
+    assert.ok(!payload.includes('Generic promotional filler'));
   });
 
   it('shows a location · score · better-than meta line under each item', async () => {

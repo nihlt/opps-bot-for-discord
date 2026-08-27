@@ -30,7 +30,16 @@ describe('toFeedProperties', () => {
     assert.deepEqual(props.Deadline, { date: { start: '2026-09-01', end: undefined } });
     assert.equal(props.Payment, undefined);
     assert.equal(props.Company, undefined);
+    assert.equal(props.Summary, undefined);
     assert.equal(typeof props.Score.number, 'number');
+  });
+
+  it('includes Summary when present, omits it when absent', () => {
+    const withSummary = toFeedProperties({ id: 'x', sourceId: 'ain', kind: 'event', title: 't', summary: 'Concrete benefit.' });
+    assert.deepEqual(withSummary.Summary, { rich_text: [{ text: { content: 'Concrete benefit.' } }] });
+
+    const withoutSummary = toFeedProperties({ id: 'x', sourceId: 'ain', kind: 'event', title: 't', summary: null });
+    assert.equal(withoutSummary.Summary, undefined);
   });
 
   it('includes a date range when dateEndNormalized is set', () => {

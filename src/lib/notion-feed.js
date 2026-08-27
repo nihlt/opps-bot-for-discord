@@ -44,6 +44,9 @@ export function toFeedProperties(opportunity) {
   if (opportunity.payment) properties.Payment = { rich_text: richText(opportunity.payment) };
   if (opportunity.description) properties.Description = { rich_text: richText(opportunity.description) };
   if (opportunity.company) properties.Company = { rich_text: richText(opportunity.company) };
+  // Only set when present -- a failed/unrun Gemini summarization leaves
+  // this blank rather than writing a null placeholder over it.
+  if (opportunity.summary) properties.Summary = { rich_text: richText(opportunity.summary) };
 
   const deadline = buildDeadlineProperty(opportunity);
   if (deadline) properties.Deadline = deadline;
