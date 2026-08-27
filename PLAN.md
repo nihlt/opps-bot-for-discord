@@ -267,3 +267,18 @@ present -- but nothing populates `.hook` yet.
   into `pipeline.js`'s actual posting step (which still posts one embed per
   new opportunity via `discord/post.js`). Decide whether to replace that
   entirely or keep both.
+
+### New source: x.com/AnthropicAI
+Add scraping/monitoring for `https://x.com/AnthropicAI` as another content
+source. Not researched yet -- before implementing, need to decide:
+- Official X API (paid tiers, rate limits, requires an API key/developer
+  account) vs. scraping the public profile page. X aggressively rate-limits
+  or blocks unauthenticated page loads for scraping purposes, similar to
+  the Cloudflare blocks already hit on `work-ua`/`robota-ua` (see
+  [docs/sources.md](./docs/sources.md)) -- likely to need either a paid API
+  tier or a login session, and a login session raises the same "don't
+  automate a personal account" concern already ruled out for the Discord
+  forum-channel source above.
+- What counts as a relevant "opportunity" from a company's own announcement
+  account (fellowship/hackathon/job announcements specifically, vs. general
+  posts) -- needs its own filtering logic, not just "everything they post."
