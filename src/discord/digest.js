@@ -36,6 +36,15 @@ function divider() {
   return new SeparatorBuilder().setDivider(true).setSpacing(SeparatorSpacingSize.Small);
 }
 
+function sourceDomain(link) {
+  if (!link) return null;
+  try {
+    return new URL(link).hostname.replace(/^www\./, '');
+  } catch {
+    return null;
+  }
+}
+
 const TOP_PERCENTILE_LABEL = 0.9;
 
 function percentileLabel(percentile) {
@@ -55,16 +64,30 @@ function itemContainer(opportunity, allScores) {
   // from the source site, not what the reader actually gets, so if
   // summarization hasn't run or failed, showing nothing beats showing that.
   const description = truncate(opportunity.summary || opportunity.hook);
-  const metaLine = [opportunity.location, `score ${score}`, percentileLabel(percentile)].filter(Boolean).join(' · ');
-  const body = [description, metaLine].filter(Boolean).join('\n') || '—';
+  const metaLine = [opportunity.location, sourceDomain(opportunity.link) && `from ${sourceDomain(opportunity.link)}`, `score ${score}`, percentileLabel(percentile)]
+    .filter(Boolean)
+    .join(' · ');
+  // Blank line between the description and the meta line, not just a
+  // newline -- reads as two visually distinct pieces of information
+  // rather than a run-on paragraph.
+  const body = [description, metaLine].filter(Boolean).join('\n\n') || '—';
 
-  const container = new ContainerBuilder()
-    .addTextDisplayComponents(new TextDisplayBuilder().setContent(`**${opportunity.title}**`))
-    .addSectionComponents(
+  const container = new ContainerBuilder().addTextDisplayComponents(
+    new TextDisplayBuilder().setContent(`**${opportunity.title}**`),
+  );
+
+  // A Discord Section requires an accessory (button or thumbnail) -- if
+  // there's no link to send someone to, fall back to a plain text block
+  // instead of a Section, rather than building a button with no URL.
+  if (opportunity.link) {
+    container.addSectionComponents(
       new SectionBuilder()
         .addTextDisplayComponents(new TextDisplayBuilder().setContent(body))
         .setButtonAccessory(new ButtonBuilder().setStyle(ButtonStyle.Link).setURL(opportunity.link).setLabel('Відкрити')),
     );
+  } else {
+    container.addTextDisplayComponents(new TextDisplayBuilder().setContent(body));
+  }
 
   if (color !== null) container.setAccentColor(color);
   return container;

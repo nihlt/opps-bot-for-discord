@@ -117,13 +117,33 @@ describe('postDigest', () => {
     assert.ok(!payload.includes('Generic promotional filler'));
   });
 
-  it('shows a location · score · better-than meta line under each item', async () => {
+  it('shows a location · from domain · score · better-than meta line under each item', async () => {
     const { channel, sent } = makeFakeChannel();
     const scoringPopulation = [opp('meta'), opp('lower'), opp('lower2')];
-    await postDigest(channel, [{ ...opp('meta'), location: 'Lviv' }], { scoringPopulation });
+    await postDigest(
+      channel,
+      [{ ...opp('meta'), location: 'Lviv', link: 'https://dou.ua/calendar/1/' }],
+      { scoringPopulation },
+    );
+    const payload = JSON.stringify(sent.main.components);
+    assert.ok(payload.includes('Lviv · from dou.ua · score'));
+    assert.ok(/better than 0\.\d\d|one of the best/.test(payload));
+  });
+
+  it('omits the "from domain" segment when the link is missing or unparseable', async () => {
+    const { channel, sent } = makeFakeChannel();
+    await postDigest(channel, [{ ...opp('nolink'), location: 'Lviv', link: null }]);
     const payload = JSON.stringify(sent.main.components);
     assert.ok(payload.includes('Lviv · score'));
-    assert.ok(/better than 0\.\d\d|one of the best/.test(payload));
+    assert.ok(!payload.includes('from '));
+  });
+
+  it('puts a blank line between the description and the meta line', async () => {
+    const { channel, sent } = makeFakeChannel();
+    await postDigest(channel, [{ ...opp('spaced'), summary: 'A concrete sentence.' }]);
+    const payload = JSON.parse(JSON.stringify(sent.main.components));
+    const text = payload[0].components[1].components[0].content;
+    assert.ok(text.includes('A concrete sentence.\n\n'));
   });
 
   it('says "one of the best" instead of a near-1.00 fraction for a top-decile item', async () => {

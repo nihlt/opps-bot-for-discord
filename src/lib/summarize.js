@@ -32,12 +32,21 @@ function buildPrompt(opportunities) {
     kind: o.kind,
     location: o.location,
     tags: o.tags,
+    payment: o.payment,
     description: (o.description || '').slice(0, DESCRIPTION_EXCERPT_LENGTH),
   }));
 
   return `You are writing one-sentence summaries for a Discord feed of opportunities (hackathons, fellowships, jobs, events) aimed at 1st-4th year Computer Science / AI Systems undergrads at Lviv Polytechnic (LPNU).
 
 For each item below, write ONE concrete sentence describing what the reader actually gets or does by taking part -- skip generic promotional language about the event's scale, history, or prestige. Be specific and factual, not salesy. Write in Ukrainian.
+
+If the item is a hackathon, competition, or fellowship AND it mentions a
+prize, award, or stipend amount (in the "payment" field or the
+description), you MUST include that concrete figure in the summary --
+e.g. "$1000 для студента і викладача", "приз 100 000 грн". This is the
+single most decisive fact for whether someone bothers to open the link,
+so never drop it silently even if the rest of the sentence has to be
+shorter to fit.
 
 Respond with ONLY a JSON array, no markdown fences, no commentary, in this exact shape:
 [{"id": "<id>", "summary": "<one sentence>"}]
