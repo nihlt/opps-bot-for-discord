@@ -16,23 +16,23 @@ logged (`console.error`), and **every opportunity in that batch gets
 `.summary = null`**. Nothing throws further up into `pipeline.js`.
 
 Consequences: `scoreOpportunity()` is unaffected (pure function, no LLM
-dependency) — ranking and gold/gray highlighting (when `digest.js` is used)
-keep working normally. `discord/post.js` (the live posting path) and
-`discord/digest.js` both show no description line for affected items
-rather than falling back to raw scraped text — this is by design, not a
-gap. `notion-feed.js`'s `Summary` property is simply omitted from the
-write (not set to a placeholder).
+dependency) — ranking and gold/gray highlighting keep working normally.
+`discord/digest.js` shows no description line for affected items rather
+than falling back to raw scraped text — this is by design, not a gap.
+`notion-feed.js`'s `Summary` property is simply omitted from the write
+(not set to a placeholder).
 
 **What's NOT handled**: no retry, no backoff, single attempt per pipeline
 run. It's an all-or-nothing batch — if the Vertex AI call fails, *every*
 item in that run loses its summary, not just a problematic one, because
-they're all sent in one call. No alert to the user that summarization is
-silently degrading run after run (e.g. if the service account key in
-`GOOGLE_APPLICATION_CREDENTIALS` is revoked, or `GEMINI_MODEL`/
-`GOOGLE_CLOUD_PROJECT`/`GOOGLE_CLOUD_LOCATION` stop being a valid
-combination) — the only visible symptom is that Discord messages/Notion
-rows quietly stop having a `Summary`/description, with the reason sitting
-in a log line nobody is necessarily watching.
+they're all sent in one call. **What is now handled**: `attachSummaries()`
+takes an `onFailure(error)` callback; `pipeline.js` uses it to push a line
+into that run's `issues` and DM every `ADMIN_DISCORD_USER_IDS` admin once
+at the end (see [discord-integration.md](./discord-integration.md) and
+`src/discord/alerts.js`) — so a revoked service account key or an invalid
+`GEMINI_MODEL`/`GOOGLE_CLOUD_PROJECT`/`GOOGLE_CLOUD_LOCATION` combination
+no longer degrades silently run after run with only a console line to
+show it; someone gets a DM the same run it first breaks.
 
 ## The LLM returns invalid JSON (or valid JSON, wrong shape)
 
@@ -58,42 +58,47 @@ for that external agent's health**, and there can't be without deliberately
 building one (e.g. checking `Date found` timestamps for staleness) — not
 done today.
 
-## Discord is down / a single post fails
+## Discord is down / the digest post fails
 
-Inside `runPipeline()`'s posting loop, each `postOpportunity()` call is
-individually wrapped in try/catch — one failed send is logged and the loop
-continues to the next opportunity. A full Discord outage during the
-posting phase would produce a run that scraped and stored everything
-correctly but posted 0 messages, with N error lines in the log, and the
-process keeps running (cron will try again next scheduled run).
+`pipeline.js`'s `postDigest()` call is wrapped in try/catch — a failure
+(outage, bad channel, missing permission) is logged, pushed into `issues`,
+and DMed to admins at the end of the run, same as any other pipeline
+failure. It does **not** retry, and it does **not** stop the Notion Feed
+write, which already happened earlier in the run regardless.
 
-**Startup is different and worse**: `src/index.js`'s `createDiscordClient()`
-call is *not* wrapped per-item — if `client.login()` fails (bad token,
-Discord API down at that exact moment, network issue at boot), `main()`'s
-top-level `.catch()` logs the error and calls `process.exit(1)`. **The
-process exits and nothing restarts it** — there is no process supervisor
-(no pm2, no systemd unit, no Windows service, no retry loop) configured
-anywhere in this repo or documented as a deployment requirement. A
-transient outage exactly at boot time means the bot simply stays down
-until someone manually re-runs `npm start`.
+**Startup is different**: `src/index.js`'s `createDiscordClient()` call is
+not wrapped the same way — if `client.login()` fails (bad token, Discord
+API down at that exact moment, network issue at boot), there is no
+logged-in client to DM through at all, so Discord-based alerting
+structurally cannot cover this one case. Since this now runs as a GitHub
+Actions job rather than an always-on process (see
+[architecture.md](./architecture.md#hosting-github-actions)), a login
+failure just makes that run's job fail — GitHub's own built-in
+"workflow run failed" email (sent to the repo owner by default, no setup
+needed) is what surfaces it, and the next day's scheduled run tries again
+independently. There's no cross-run backoff or "stop trying after N
+failures" logic; every scheduled trigger is a fresh, independent attempt.
 
 ## The channel the bot posts to gets deleted
 
-`channel.channels.fetch(channelId)` (inside `postOpportunity()` /
-`postDigest()`) throws when the channel no longer exists. Caught the same
-way as any other per-item post failure — logged, loop continues, pipeline
-completes "successfully" having posted 0 messages. **Every single item in
-every future run will fail identically** until `DISCORD_CHANNEL_ID` is
-updated in `.env` and the process restarted, with no proactive alert
-(e.g. a DM to the bot owner) that this has happened — the only signal is
-silence in the channel and error lines in a log.
+`client.channels.fetch(channelId)` (inside `postDigest()`'s caller in
+`pipeline.js`) throws when the channel no longer exists. Caught the same
+way as any other digest-post failure — logged, pushed into `issues`, DMed
+to admins at the end of that run. **Every future run will fail
+identically** until `DISCORD_CHANNEL_ID` is updated (in the GitHub Actions
+secret, and in local `.env` for dev), but at least each run's failure is
+now surfaced via the admin DM rather than being silent — no self-check at
+startup verifies the channel still exists or that the bot still has
+`SEND_MESSAGES`/`VIEW_CHANNEL` before attempting to post, it's discovered
+by the post itself failing.
 
 ## The server's role/permission policy changes and the bot loses access
 
-Same mechanism and same gap as the channel-deleted case: `channel.send()`
-throws a Missing Access-style error, caught per-item, logged, loop
-continues. No alerting. No self-check at startup that verifies the bot
-still has `SEND_MESSAGES`/`VIEW_CHANNEL` before attempting a run.
+Same mechanism as the channel-deleted case: `channel.send()` throws a
+Missing Access-style error, caught, pushed into `issues`, DMed to admins.
+No self-check at startup that verifies permissions ahead of time — the
+failure is still discovered by attempting the send, just no longer silent
+afterward.
 
 ## Notion API is down, rate-limited, or the integration loses access
 
@@ -130,15 +135,16 @@ filesystem) — a crash mid-write leaves the temp file orphaned and the real
 `events.jsonl` untouched, never truncated/corrupted. This one is a
 genuine, deliberate strength, not a gap.
 
-## Two pipeline processes accidentally run at once
+## Two pipeline runs accidentally run at once
 
-`scheduler.js`'s overlap guard is an **in-memory boolean** inside one
-process — it prevents a second cron tick from overlapping a still-running
-tick *within that process*, but does nothing if someone accidentally starts
-a second `npm start` process (e.g., after a crash, forgetting the old one
-might still be limping along, or an interactive test run left orphaned —
-this happened during development, see git history / conversation around
-killing leftover `node src/index.js` processes). Both processes would
-scrape, dedupe against the same file, and could both attempt to post the
-same "new" item if they read the store at overlapping times. No file lock,
-no PID file, no cross-process guard exists.
+Handled at the infrastructure level now: `.github/workflows/daily-digest.yml`
+sets `concurrency: { group: daily-digest, cancel-in-progress: false }`,
+and GitHub queues/skips overlapping runs of that group natively — this is
+a real cross-run guard, not the old in-memory-boolean approach
+(`scheduler.js`'s `running` flag) that only protected against overlap
+*within a single long-lived process* and did nothing against two separate
+`npm start` processes (which happened during development — see git
+history around killing leftover `node src/index.js` processes). That
+gap doesn't apply to the deployed job any more; it would still apply if
+someone ran `npm start` locally twice at once, since local dev has no
+concurrency group protecting it.

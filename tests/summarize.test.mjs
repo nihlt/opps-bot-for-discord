@@ -143,6 +143,24 @@ describe('attachSummaries', () => {
     assert.equal(result.every((o) => o.summary === null), true);
   });
 
+  it('calls onFailure with the error on failure, but still never throws', async () => {
+    let caught;
+    const result = await attachSummaries(items, { ...options, fetchImpl: fakeFetchThrows() }, (error) => {
+      caught = error;
+    });
+    assert.equal(result.every((o) => o.summary === null), true);
+    assert.equal(caught.message, 'network unreachable');
+  });
+
+  it('does not call onFailure on success', async () => {
+    let called = false;
+    const fetchImpl = fakeFetchOk(JSON.stringify([{ id: 'a', summary: 'Summary A' }, { id: 'b', summary: 'Summary B' }]));
+    await attachSummaries(items, { ...options, fetchImpl }, () => {
+      called = true;
+    });
+    assert.equal(called, false);
+  });
+
   it('sets .summary to null on an auth failure -- never throws', async () => {
     const getAccessToken = async () => {
       throw new Error('ADC credentials not found');

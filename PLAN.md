@@ -14,6 +14,15 @@ Secrets already validated live (2026-08-27): `DISCORD_BOT_TOKEN`,
 `DISCORD_CHANNEL_ID` (`#general`), `NOTION_TOKEN`, `NOTION_DATABASE_ID` all
 confirmed working against the real Discord/Notion APIs.
 
+**Stages 0-2 below, and the prod-readiness pass that followed them
+(Components V2 digest wired in as the sole posting path, admin DM
+alerting, GitHub Actions hosting replacing the in-repo `node-cron`
+scheduler) are done** — see [docs/README.md](./docs/README.md) for the
+current state. What's still open: Stage 3 (`/refresh` command, below),
+manually pointing `DISCORD_CHANNEL_ID` at a real production channel and
+inviting the bot there, adding the GitHub Actions repo secrets, and the
+Backlog items below.
+
 ## Dependency graph
 
 ```
@@ -263,10 +272,10 @@ present -- but nothing populates `.hook` yet.
   fallback for anything the external agent hasn't scored yet, since it
   runs on its own schedule and won't have processed brand-new rows
   immediately.
-- Also still pending: `postDigest` is built and tested but not yet wired
-  into `pipeline.js`'s actual posting step (which still posts one embed per
-  new opportunity via `discord/post.js`). Decide whether to replace that
-  entirely or keep both.
+- `postDigest` is already the sole posting path in `pipeline.js` (as of
+  the prod-readiness pass) — this item is now purely about merging
+  Score/Hook back onto each `Opportunity` before `postDigest` is called,
+  nothing else.
 
 ### New source: x.com/AnthropicAI
 Add scraping/monitoring for `https://x.com/AnthropicAI` as another content

@@ -1,13 +1,26 @@
-import { setTimeout as delay } from 'node:timers/promises';
 import { loadEnabledSources, fetchFromSource } from './sources/index.js';
 import { appendNewEvents, loadEvents } from './lib/store.js';
 import { applyEventPaymentPolicy } from './lib/normalize.js';
 import { attachSummaries } from './lib/summarize.js';
 import { writeToFeed } from './lib/notion-feed.js';
-import { postOpportunity } from './discord/post.js';
+import { postDigest } from './discord/digest.js';
+import { notifyAdmins } from './discord/alerts.js';
 
 const FIRST_RUN_POST_CAP = 15;
-const POST_DELAY_MS = 300;
+
+/**
+ * On the very first run ever (empty store), a fresh scrape can return the
+ * source sites' entire current listings as "new". Capping to the newest N
+ * keeps day one from dumping the whole historical catalogue into the
+ * digest thread at once -- everything scraped is still recorded in the
+ * store regardless, so nothing gets reposted as "new" on the next run.
+ */
+function pickFirstRunBatch(newEvents, cap) {
+  if (newEvents.length <= cap) return newEvents;
+  return [...newEvents]
+    .sort((a, b) => (b.dateNormalized || '').localeCompare(a.dateNormalized || ''))
+    .slice(0, cap);
+}
 
 async function mapWithConcurrency(items, limit, fn) {
   const results = new Array(items.length);
@@ -42,72 +55,81 @@ async function scrapeAllSources(concurrency) {
     }
   });
 
-  if (sources.length > 0 && failures.length === sources.length) {
-    throw new Error(`All ${sources.length} enabled sources failed`);
-  }
-
-  return { opportunities, failures };
-}
-
-function pickFirstRunBatch(newEvents, cap) {
-  if (newEvents.length <= cap) return newEvents;
-  return [...newEvents]
-    .sort((a, b) => (b.dateNormalized || '').localeCompare(a.dateNormalized || ''))
-    .slice(0, cap);
+  return { opportunities, failures, totalSources: sources.length };
 }
 
 /**
- * Scrapes every enabled source, dedupes against data/events.jsonl, and
- * posts genuinely new opportunities to Discord. On the very first run
- * (empty store) the post batch is capped to the newest N items so the
- * whole historical catalogue doesn't get dumped into the channel at
- * once — everything scraped is still recorded in the store regardless,
- * so nothing gets reposted as "new" on the next run.
+ * Scrapes every enabled source, dedupes against data/events.jsonl,
+ * summarizes new items via Vertex AI, writes them to the Notion Feed, and
+ * posts a digest to Discord (top 3 in the channel message, the rest in a
+ * thread). Every distinct problem encountered along the way is collected
+ * into `issues` and DMed to every ADMIN_DISCORD_USER_IDS admin ONCE at the
+ * end of the run (see discord/alerts.js) -- house policy is "alert on
+ * every failure, no exceptions," but batched into one message per run
+ * rather than one DM per problem.
  */
 export async function runPipeline(client, { concurrency = Number(process.env.SCRAPE_CONCURRENCY) || 3 } = {}) {
+  const issues = [];
   const wasFirstRun = (await loadEvents()).length === 0;
 
-  const { opportunities, failures } = await scrapeAllSources(concurrency);
+  const { opportunities, failures, totalSources } = await scrapeAllSources(concurrency);
+  if (failures.length > 0) {
+    const label = failures.length === totalSources ? 'ALL sources failed' : 'Some sources failed';
+    issues.push(`${label}: ${failures.map((f) => `${f.sourceId} (${f.message})`).join('; ')}`);
+  }
+
   const newEvents = await appendNewEvents(opportunities);
-  // attachSummaries degrades to .summary = null on any failure (bad
-  // credentials, network, invalid JSON) rather than throwing -- a
-  // summarization outage never blocks Notion writes or Discord posting.
-  const summarized = await attachSummaries(newEvents);
+  const catalogue = await loadEvents(); // full stored catalogue, including today's new events -- used to rank/highlight against, not just today's batch
+  const summarized = await attachSummaries(newEvents, undefined, (error) => {
+    issues.push(`Vertex AI summarization failed, posted/written without summaries: ${error.message}`);
+  });
 
   let feedResult = { written: 0, skipped: 0, failures: [] };
   try {
     feedResult = await writeToFeed(summarized);
+    if (feedResult.failures.length > 0) {
+      issues.push(`Notion Feed: ${feedResult.failures.length} row(s) failed to write: ${feedResult.failures.map((f) => f.message).join('; ')}`);
+    }
   } catch (error) {
+    issues.push(`Notion Feed write failed entirely: ${error.message}`);
     console.error('[pipeline] notion-feed write failed:', error.message);
   }
 
   const toPost = wasFirstRun ? pickFirstRunBatch(summarized, FIRST_RUN_POST_CAP) : summarized;
 
-  let postedCount = 0;
-  for (const opportunity of toPost) {
+  let digestMessage = null;
+  if (toPost.length > 0) {
     try {
-      await postOpportunity(client, opportunity);
-      postedCount += 1;
+      const channelId = process.env.DISCORD_CHANNEL_ID;
+      if (!channelId) throw new Error('DISCORD_CHANNEL_ID is not set');
+      const channel = await client.channels.fetch(channelId);
+      digestMessage = await postDigest(channel, toPost, { scoringPopulation: catalogue });
     } catch (error) {
-      console.error(`[pipeline] failed to post "${opportunity.title}":`, error.message);
+      issues.push(`Discord digest post failed: ${error.message}`);
+      console.error('[pipeline] failed to post digest:', error.message);
     }
-    await delay(POST_DELAY_MS);
   }
 
   console.log(
-    `[pipeline] scraped=${opportunities.length} new=${newEvents.length} posted=${postedCount}` +
+    `[pipeline] scraped=${opportunities.length} new=${newEvents.length} posted=${digestMessage ? 'yes' : 'no'}` +
       ` notionFeedWritten=${feedResult.written}` +
       (wasFirstRun ? ' (first run, capped)' : '') +
-      (failures.length ? ` failedSources=${failures.map((f) => f.sourceId).join(',')}` : '') +
-      (feedResult.failures.length ? ` notionFeedFailures=${feedResult.failures.length}` : ''),
+      (issues.length ? ` issues=${issues.length}` : ''),
   );
+
+  if (issues.length > 0) {
+    await notifyAdmins(
+      client,
+      `[opps-bot] ${issues.length} issue(s) this run:\n${issues.map((issue, i) => `${i + 1}. ${issue}`).join('\n')}`,
+    );
+  }
 
   return {
     scraped: opportunities.length,
     newCount: newEvents.length,
-    postedCount,
-    failures,
+    posted: digestMessage !== null,
     wasFirstRun,
     notionFeed: feedResult,
+    issues,
   };
 }

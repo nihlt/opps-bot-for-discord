@@ -126,8 +126,11 @@ export async function summarizeOpportunities(
  * callers (see digest.js) treat null as "show nothing", not "fall back to
  * the raw scraped description", per house convention: a failed summary
  * should just be absent, not replaced with recycled promotional filler.
+ * Never throws. `onFailure(error)`, if given, lets a caller (see
+ * pipeline.js) surface this into its own run-level issue reporting --
+ * this function only logs to the console on its own.
  */
-export async function attachSummaries(opportunities, options) {
+export async function attachSummaries(opportunities, options, onFailure) {
   if (opportunities.length === 0) return [];
 
   try {
@@ -135,6 +138,7 @@ export async function attachSummaries(opportunities, options) {
     return opportunities.map((o) => ({ ...o, summary: summaries.get(o.id) || null }));
   } catch (error) {
     console.error('[summarize] Vertex AI call failed, leaving summaries blank:', error.message);
+    if (onFailure) onFailure(error);
     return opportunities.map((o) => ({ ...o, summary: null }));
   }
 }

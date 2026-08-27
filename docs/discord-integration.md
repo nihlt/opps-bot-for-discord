@@ -1,29 +1,20 @@
 # Discord integration
 
-**Read [architecture.md](./architecture.md#whats-actually-wired-in) first.**
-Two entirely different posting formats exist in this codebase; only one is
-live.
+**Read [architecture.md](./architecture.md) first.** There used to be two
+posting formats in this codebase (a classic-embed one-per-item format in
+`discord/post.js`, and the Components V2 digest below); `post.js` was
+deleted once `digest.js` fully replaced it in `runPipeline()` and nothing
+referenced it any more. Only the digest format exists now.
 
-## What's live: one embed per new opportunity
+## The Components V2 digest — the only posting path
 
-`src/discord/post.js` — `createDiscordClient()` logs in with
+`src/discord/client.js`'s `createDiscordClient()` logs in with
 `DISCORD_BOT_TOKEN` (only `GatewayIntentBits.Guilds` requested).
-`postOpportunity(client, opportunity)` builds a classic `EmbedBuilder`
-(title=link, color by kind, fields for date/location/payment/company/tags-
-as-hashtags/calendar) and sends it to `DISCORD_CHANNEL_ID`. The embed
-description shows `opportunity.summary` (the Vertex AI-generated sentence,
-see [architecture.md](./architecture.md)) when present, and no description
-at all otherwise — never the raw scraped text, same convention as
-`digest.js` below. `runPipeline()` calls this once per new opportunity,
-300ms apart, capped to 15 on the very first run ever (empty store) so the
-whole historical catalogue doesn't get dumped into the channel at once.
-
-## What's prototyped but not wired in: the Components V2 digest
-
-`src/discord/digest.js` — `postDigest(channel, opportunities,
-{ scoringPopulation })`. Built and unit-tested; demonstrated live via
-one-off scripts run manually during development, sending real messages to
-the real channel. **`runPipeline()` never calls this.**
+`src/discord/digest.js`'s `postDigest(channel, opportunities,
+{ scoringPopulation })` is called once per pipeline run with that run's new
+opportunities. Built, unit-tested, and demonstrated live via one-off
+scripts many times during development before being wired into
+`runPipeline()` for real.
 
 What it does: sorts by `scoreOpportunity()` descending, puts the top 3 in
 the channel message itself (Components V2 `Container`s with a "Відкрити"
@@ -106,12 +97,48 @@ of what happens when each dependency is down.
 ```
 [Container, accent = percentileColor(score, scoringPopulation) or none]
   **{title}**
-  [Section]
+  [Section, or a plain text block if opportunity.link is missing]
     {summary or hook, truncated to 400 chars, or omitted entirely}
-    {location} · score {N} · {"better than 0.NN" or "one of the best"}
+
+    {location} · from {domain} · score {N} · {"better than 0.NN" or "one of the best"}
     [Button: "Відкрити" -> opportunity.link]
 ```
+
+`{domain}` is `opportunity.link`'s hostname (`www.` stripped), omitted if
+the link is missing or unparseable. There's a blank line between the
+summary/hook and the meta line, not just a newline — reads as two visually
+distinct pieces of information. The Gemini summarization prompt
+(`lib/summarize.js`) explicitly requires prize/stipend figures to sit at
+the very start or end of the sentence (never mid-sentence, to survive
+skim-reading) and always carry a currency mark, since "who opens an essay
+contest link if they don't know 1 student + 1 teacher win $1000" was the
+motivating case that got this added.
 
 Top 3 by score go in the channel message; the rest go into a thread named
 `Ще N можливостей/можливість` (correct Ukrainian pluralization), chunked 5
 items per follow-up message in the thread.
+
+## Admin DM alerts
+
+`src/discord/alerts.js`'s `notifyAdmins(client, message)` DMs every user id
+in `ADMIN_DISCORD_USER_IDS` (comma-separated). Policy, per explicit user
+decision, is **alert on every failure, no exceptions** — but batched into
+one DM per pipeline run (listing every issue found) rather than one DM per
+problem. `runPipeline()` collects issues from every stage (source
+failures, Vertex AI summarization failures, Notion write failures, the
+digest post itself failing) into an array and sends a single alert at the
+end if it's non-empty; `index.js` has its own fallback alert for a fatal
+error that somehow escapes `runPipeline()`'s own handling, best-effort
+only (it needs a logged-in client to send through).
+
+A source returning `[]` (e.g. `work-ua`'s permanent Cloudflare block, see
+[sources.md](./sources.md)) is **not** a failure for alerting purposes —
+only a thrown error counts. This was deliberate: alerting on every
+already-known-broken source's empty result would DM the admin daily about
+something that isn't new information.
+
+`notifyAdmins()` never throws — a DM failure (closed DMs, no mutual server,
+bad id) is logged and skipped per-recipient, so it can never mask the
+original error it's reporting. If Discord login itself is what failed
+(`index.js`), there's no logged-in client to alert through at all — see
+[resilience.md](./resilience.md).

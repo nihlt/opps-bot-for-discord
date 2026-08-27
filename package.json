@@ -12,7 +12,6 @@
     "discord.js": "^14.15.3",
     "dotenv": "^16.4.5",
     "google-auth-library": "^11.0.2",
-    "node-cron": "^3.0.3",
     "playwright": "^1.53.1"
   }
 }

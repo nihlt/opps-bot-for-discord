@@ -48,15 +48,6 @@ for the full tradeoff. The short version: this was a deliberate choice to
 protect the user's personal curated tracker from being flooded, accepted
 knowingly with the cost of zero cross-database dedup or linking.
 
-## The Components V2 digest is fully built and demoed, but not live
-
-Repeated for emphasis because it's the single easiest wrong assumption to
-make reading this codebase: `postDigest()`, the percentile/gold accent
-colors, and the whole "top 3 + thread overflow" UX exist, are tested, and
-were shown working against the real Discord channel — but `runPipeline()`
-still posts the older one-embed-per-item format via `discord/post.js`. See
-[architecture.md](./architecture.md#whats-actually-wired-in).
-
 ## Gemini summarization went through two auth mechanisms before it worked
 
 `lib/summarize.js` was first built against the plain Generative Language
@@ -80,22 +71,25 @@ being valid, summarization degrades exactly as described in
 [resilience.md](./resilience.md#the-vertex-ai-gemini-api-doesnt-respond-times-out-or-errors) —
 blank summaries, no crash, no alert.
 
-## No process supervision
+## No process supervision — resolved by not having a long-lived process
 
-Nothing restarts the bot if it crashes (see
-[resilience.md](./resilience.md#discord-is-down--a-single-post-fails)).
-Whatever environment this eventually runs in (a persistent VM, a
-container, a scheduled task) needs its own restart-on-crash mechanism —
-this repo doesn't provide or assume one.
+This used to be a real gap (nothing restarted the bot if the always-on
+process crashed). Resolved not by adding a supervisor but by removing the
+thing that needed supervising: `src/index.js` now runs once and exits,
+triggered by GitHub Actions' own scheduler
+(see [architecture.md](./architecture.md#hosting-github-actions)). A
+run failing just means that day's job failed — GitHub's built-in
+workflow-failure email surfaces it, and the next scheduled trigger is an
+independent attempt, not a restart of a broken process.
 
-## No cross-process run guard
+## Cross-run overlap guard now lives at the infrastructure level
 
-The overlap guard is in-memory, single-process only. See
-[resilience.md](./resilience.md#two-pipeline-processes-accidentally-run-at-once).
-If this is ever deployed somewhere that could plausibly start two
-instances (e.g. a container orchestrator doing a rolling restart without
-waiting for the old instance to exit), this needs a real lock (file lock,
-Notion/DB-based lock, whatever fits the deployment target).
+`.github/workflows/daily-digest.yml`'s `concurrency` group replaces the
+old in-memory `running` boolean (deleted along with `src/scheduler.js`
+and the `node-cron` dependency). See
+[resilience.md](./resilience.md#two-pipeline-runs-accidentally-run-at-once)
+for what this does and doesn't cover — it protects the deployed job, not
+two people running `npm start` locally at the same time.
 
 ## `work-ua` stays "enabled" despite currently returning zero results
 
