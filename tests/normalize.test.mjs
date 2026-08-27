@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
-import { makeId, parseDate, normalizeOpportunity } from '../src/lib/normalize.js';
+import { makeId, parseDate, normalizeOpportunity, isFellowship, applyEventPaymentPolicy } from '../src/lib/normalize.js';
 
 describe('makeId', () => {
   it('is stable for the same input', () => {
@@ -94,5 +94,53 @@ describe('normalizeOpportunity', () => {
     const opp = normalizeOpportunity({ sourceId: 'x', title: 't' });
     assert.equal(opp.link, null);
     assert.equal(opp.calendar, null);
+  });
+});
+
+describe('isFellowship', () => {
+  it('matches on title', () => {
+    assert.equal(isFellowship({ title: 'AI Fellowship 2026', tags: [], description: '' }), true);
+  });
+
+  it('matches Ukrainian "стипендія"', () => {
+    assert.equal(isFellowship({ title: 'Стипендіальна програма', tags: [], description: '' }), true);
+  });
+
+  it('does not match an unrelated event', () => {
+    assert.equal(isFellowship({ title: 'AI Hackathon', tags: ['AI'], description: 'A weekend hackathon.' }), false);
+  });
+});
+
+describe('applyEventPaymentPolicy', () => {
+  it('drops a paid course (event, cost to attend, not a fellowship)', () => {
+    const opp = { kind: 'event', sourceId: 'dou-ai', title: 'AI Course', tags: [], description: '', payment: '$500' };
+    assert.equal(applyEventPaymentPolicy(opp), null);
+  });
+
+  it('keeps a free event but clears the payment field', () => {
+    const opp = { kind: 'event', sourceId: 'dou-ai', title: 'AI Meetup', tags: [], description: '', payment: 'безкоштовно' };
+    const result = applyEventPaymentPolicy(opp);
+    assert.notEqual(result, null);
+    assert.equal(result.payment, null);
+  });
+
+  it('keeps a fellowship and preserves its payment amount', () => {
+    const opp = { kind: 'event', sourceId: 'notion', title: 'AI Fellowship', tags: [], description: '', payment: '$1000/month' };
+    const result = applyEventPaymentPolicy(opp);
+    assert.notEqual(result, null);
+    assert.equal(result.payment, '$1000/month');
+  });
+
+  it('exempts kaggle from the cost filter (payment is prize money)', () => {
+    const opp = { kind: 'event', sourceId: 'kaggle', title: 'Kaggle Comp', tags: [], description: '', payment: '$50,000' };
+    const result = applyEventPaymentPolicy(opp);
+    assert.notEqual(result, null);
+    assert.equal(result.payment, '$50,000');
+  });
+
+  it('leaves job listings untouched', () => {
+    const opp = { kind: 'job', sourceId: 'djinni', title: 'AI Engineer', tags: [], description: '', payment: '$3000' };
+    const result = applyEventPaymentPolicy(opp);
+    assert.equal(result.payment, '$3000');
   });
 });

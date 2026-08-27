@@ -193,6 +193,40 @@ export function parseDate(rawDate, { scrapedAt } = {}) {
   return { dateNormalized: null, dateEndNormalized: null, datePrecision: 'unknown' };
 }
 
+const freeIndicatorPattern = /безкоштов|безоплат|\bfree\b/i;
+const currencyAmountPattern = /(?:[$€£¥₴]\s?\d[\d,.]*|\d[\d,.]*\s?(?:usd|eur|gbp|uah|грн))/i;
+const fellowshipPattern = /fellowship|стипенді\p{L}*|стипенд\p{L}*|grant|грант\p{L}*/iu;
+
+/** True when the opportunity's own text reads as a fellowship/stipend program. */
+export function isFellowship(opportunity) {
+  const text = [opportunity.title, ...(opportunity.tags || []), opportunity.description]
+    .filter(Boolean)
+    .join(' ');
+  return fellowshipPattern.test(text);
+}
+
+function hasAttendanceCost(opportunity) {
+  const payment = opportunity.payment || '';
+  return currencyAmountPattern.test(payment) && !freeIndicatorPattern.test(payment);
+}
+
+/**
+ * House convention: paid courses/events get dropped from the feed
+ * entirely, and a payment amount is only ever shown for fellowships
+ * (money paid TO the participant) — never a price to attend. Kaggle's
+ * `payment` is prize money, not a cost, so it's exempt; job listings
+ * keep their own salary semantics untouched (kind !== 'event').
+ * Returns null to signal "drop this opportunity", otherwise the
+ * opportunity (with `payment` cleared unless it's a fellowship).
+ */
+export function applyEventPaymentPolicy(opportunity) {
+  if (opportunity.kind !== 'event' || opportunity.sourceId === 'kaggle') return opportunity;
+  if (isFellowship(opportunity)) return opportunity;
+  if (hasAttendanceCost(opportunity)) return null;
+  if (opportunity.payment === null) return opportunity;
+  return { ...opportunity, payment: null };
+}
+
 /**
  * The shared Opportunity shape every source module must produce (after
  * being passed through this function). `raw.sourceId` + `raw.link` decide

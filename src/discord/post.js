@@ -2,6 +2,11 @@ import { EmbedBuilder } from 'discord.js';
 
 const kindColor = { event: 0x5865f2, job: 0x57f287 };
 
+function toHashtag(tag) {
+  const cleaned = tag.replace(/[^\p{L}\p{N}]+/gu, '');
+  return cleaned ? `#${cleaned}` : null;
+}
+
 function formatDate(opportunity) {
   const { dateNormalized, dateEndNormalized, date } = opportunity;
   if (dateNormalized && dateEndNormalized) return `${dateNormalized} — ${dateEndNormalized}`;
@@ -23,7 +28,8 @@ export function formatOpportunityEmbed(opportunity) {
   if (opportunity.description) embed.setDescription(opportunity.description);
   if (opportunity.payment) embed.addFields({ name: 'Оплата', value: opportunity.payment, inline: true });
   if (opportunity.company) embed.addFields({ name: 'Компанія', value: opportunity.company, inline: true });
-  if (opportunity.tags?.length) embed.addFields({ name: 'Теги', value: opportunity.tags.join(', ') });
+  const hashtags = (opportunity.tags || []).map(toHashtag).filter(Boolean).join(' ');
+  if (hashtags) embed.addFields({ name: 'Теги', value: hashtags });
   if (opportunity.calendar) embed.addFields({ name: 'Календар', value: opportunity.calendar });
 
   return embed;
