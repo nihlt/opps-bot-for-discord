@@ -1,5 +1,29 @@
-const GEMINI_API_BASE = 'https://generativelanguage.googleapis.com/v1beta/models';
+import { GoogleAuth } from 'google-auth-library';
+
 const DESCRIPTION_EXCERPT_LENGTH = 800;
+
+let cachedAuth;
+
+/**
+ * Resolves an OAuth2 access token from Application Default Credentials
+ * (GOOGLE_APPLICATION_CREDENTIALS in .env points at a service account
+ * JSON). Lazily constructed so importing this module never requires
+ * credentials to exist -- only calling it for real does.
+ */
+async function defaultGetAccessToken() {
+  if (!cachedAuth) cachedAuth = new GoogleAuth({ scopes: 'https://www.googleapis.com/auth/cloud-platform' });
+  const client = await cachedAuth.getClient();
+  const { token } = await client.getAccessToken();
+  if (!token) throw new Error('GoogleAuth did not return an access token');
+  return token;
+}
+
+function vertexUrl({ project, location, model }) {
+  // Vertex AI's "global" location uses the bare host, unlike regional
+  // locations which get a "{region}-" prefix.
+  const host = location === 'global' ? 'aiplatform.googleapis.com' : `${location}-aiplatform.googleapis.com`;
+  return `https://${host}/v1/projects/${project}/locations/${location}/publishers/google/models/${model}:generateContent`;
+}
 
 function buildPrompt(opportunities) {
   const items = opportunities.map((o) => ({
@@ -29,39 +53,47 @@ function extractJsonText(candidateText) {
 }
 
 /**
- * Asks Gemini for a one-sentence, concrete-benefit summary of each
- * opportunity, in a single batched call. Returns a Map from opportunity id
- * to summary text -- only for ids the model actually returned. Throws on
- * any failure (network, non-2xx, unparseable JSON); callers decide how to
- * degrade (see attachSummaries below).
+ * Asks Gemini (via Vertex AI, OAuth2/ADC auth) for a one-sentence,
+ * concrete-benefit summary of each opportunity, in a single batched call.
+ * Returns a Map from opportunity id to summary text -- only for ids the
+ * model actually returned. Throws on any failure (auth, network, non-2xx,
+ * unparseable JSON); callers decide how to degrade (see attachSummaries).
  */
 export async function summarizeOpportunities(
   opportunities,
-  { apiKey = process.env.GEMINI_API_KEY, model = process.env.GEMINI_MODEL, fetchImpl = fetch } = {},
+  {
+    project = process.env.GOOGLE_CLOUD_PROJECT,
+    location = process.env.GOOGLE_CLOUD_LOCATION || 'us-central1',
+    model = process.env.GEMINI_MODEL,
+    fetchImpl = fetch,
+    getAccessToken = defaultGetAccessToken,
+  } = {},
 ) {
   if (opportunities.length === 0) return new Map();
-  if (!apiKey || !model) throw new Error('GEMINI_API_KEY/GEMINI_MODEL is not set');
+  if (!project || !model) throw new Error('GOOGLE_CLOUD_PROJECT/GEMINI_MODEL is not set');
 
-  const response = await fetchImpl(`${GEMINI_API_BASE}/${model}:generateContent?key=${apiKey}`, {
+  const token = await getAccessToken();
+
+  const response = await fetchImpl(vertexUrl({ project, location, model }), {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
     body: JSON.stringify({
-      contents: [{ parts: [{ text: buildPrompt(opportunities) }] }],
+      contents: [{ role: 'user', parts: [{ text: buildPrompt(opportunities) }] }],
       generationConfig: { responseMimeType: 'application/json' },
     }),
   });
 
   if (!response.ok) {
     const body = await response.text().catch(() => '');
-    throw new Error(`Gemini API error ${response.status}: ${body.slice(0, 300)}`);
+    throw new Error(`Vertex AI error ${response.status}: ${body.slice(0, 300)}`);
   }
 
   const data = await response.json();
   const candidateText = data.candidates?.[0]?.content?.parts?.[0]?.text;
-  if (!candidateText) throw new Error('Gemini response had no text content');
+  if (!candidateText) throw new Error('Vertex AI response had no text content');
 
   const parsed = JSON.parse(extractJsonText(candidateText));
-  if (!Array.isArray(parsed)) throw new Error('Gemini response JSON was not an array');
+  if (!Array.isArray(parsed)) throw new Error('Vertex AI response JSON was not an array');
 
   const summaries = new Map();
   for (const item of parsed) {
@@ -84,7 +116,7 @@ export async function attachSummaries(opportunities, options) {
     const summaries = await summarizeOpportunities(opportunities, options);
     return opportunities.map((o) => ({ ...o, summary: summaries.get(o.id) || null }));
   } catch (error) {
-    console.error('[summarize] Gemini call failed, leaving summaries blank:', error.message);
+    console.error('[summarize] Vertex AI call failed, leaving summaries blank:', error.message);
     return opportunities.map((o) => ({ ...o, summary: null }));
   }
 }

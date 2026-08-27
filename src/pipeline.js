@@ -2,6 +2,7 @@ import { setTimeout as delay } from 'node:timers/promises';
 import { loadEnabledSources, fetchFromSource } from './sources/index.js';
 import { appendNewEvents, loadEvents } from './lib/store.js';
 import { applyEventPaymentPolicy } from './lib/normalize.js';
+import { attachSummaries } from './lib/summarize.js';
 import { writeToFeed } from './lib/notion-feed.js';
 import { postOpportunity } from './discord/post.js';
 
@@ -68,15 +69,19 @@ export async function runPipeline(client, { concurrency = Number(process.env.SCR
 
   const { opportunities, failures } = await scrapeAllSources(concurrency);
   const newEvents = await appendNewEvents(opportunities);
+  // attachSummaries degrades to .summary = null on any failure (bad
+  // credentials, network, invalid JSON) rather than throwing -- a
+  // summarization outage never blocks Notion writes or Discord posting.
+  const summarized = await attachSummaries(newEvents);
 
   let feedResult = { written: 0, skipped: 0, failures: [] };
   try {
-    feedResult = await writeToFeed(newEvents);
+    feedResult = await writeToFeed(summarized);
   } catch (error) {
     console.error('[pipeline] notion-feed write failed:', error.message);
   }
 
-  const toPost = wasFirstRun ? pickFirstRunBatch(newEvents, FIRST_RUN_POST_CAP) : newEvents;
+  const toPost = wasFirstRun ? pickFirstRunBatch(summarized, FIRST_RUN_POST_CAP) : summarized;
 
   let postedCount = 0;
   for (const opportunity of toPost) {

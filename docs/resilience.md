@@ -5,31 +5,34 @@ the answer is "nothing good happens," that's stated plainly — see
 [assumptions-and-caveats.md](./assumptions-and-caveats.md) for the list of
 gaps this implies.
 
-## The Gemini/LLM API doesn't respond, times out, or errors
+## The Vertex AI (Gemini) API doesn't respond, times out, or errors
 
-`src/lib/summarize.js`'s `attachSummaries()` wraps the single batched
-`generateContent` call in try/catch. Any failure — network error, non-2xx
-HTTP status, missing candidate text, unparseable JSON, JSON that isn't an
-array — is caught, logged (`console.error`), and **every opportunity in
-that batch gets `.summary = null`**. Nothing throws further up.
+`src/lib/summarize.js`'s `attachSummaries()` wraps the whole call —
+resolving an OAuth2 access token via `google-auth-library`/ADC, *and* the
+single batched `generateContent` request — in try/catch. Any failure —
+ADC/credentials error, network error, non-2xx HTTP status, missing
+candidate text, unparseable JSON, JSON that isn't an array — is caught,
+logged (`console.error`), and **every opportunity in that batch gets
+`.summary = null`**. Nothing throws further up into `pipeline.js`.
 
 Consequences: `scoreOpportunity()` is unaffected (pure function, no LLM
-dependency) — ranking and gold/gray highlighting keep working normally.
-`digest.js` (when/if wired in) shows no description line for affected
-items rather than falling back to raw scraped text — this is by design,
-not a gap. `notion-feed.js`'s `Summary` property is simply omitted from
-the write (not set to a placeholder).
+dependency) — ranking and gold/gray highlighting (when `digest.js` is used)
+keep working normally. `discord/post.js` (the live posting path) and
+`discord/digest.js` both show no description line for affected items
+rather than falling back to raw scraped text — this is by design, not a
+gap. `notion-feed.js`'s `Summary` property is simply omitted from the
+write (not set to a placeholder).
 
 **What's NOT handled**: no retry, no backoff, single attempt per pipeline
-run. It's an all-or-nothing batch — if Gemini fails, *every* item in that
-run loses its summary, not just a problematic one, because they're all
-sent in one call. No alert to the user that summarization is silently
-degrading run after run (e.g. if the API key expires, or the model name in
-`GEMINI_MODEL` stops existing) — the only visible symptom is that Discord
-messages/Notion rows quietly stop having a `Summary`/description, with the
-reason sitting in a log line nobody is necessarily watching. **This whole
-stage isn't wired into `runPipeline()` yet anyway** — see
-[architecture.md](./architecture.md).
+run. It's an all-or-nothing batch — if the Vertex AI call fails, *every*
+item in that run loses its summary, not just a problematic one, because
+they're all sent in one call. No alert to the user that summarization is
+silently degrading run after run (e.g. if the service account key in
+`GOOGLE_APPLICATION_CREDENTIALS` is revoked, or `GEMINI_MODEL`/
+`GOOGLE_CLOUD_PROJECT`/`GOOGLE_CLOUD_LOCATION` stop being a valid
+combination) — the only visible symptom is that Discord messages/Notion
+rows quietly stop having a `Summary`/description, with the reason sitting
+in a log line nobody is necessarily watching.
 
 ## The LLM returns invalid JSON (or valid JSON, wrong shape)
 

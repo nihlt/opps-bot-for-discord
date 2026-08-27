@@ -24,9 +24,11 @@ function fakeFetchThrows() {
   };
 }
 
+const fakeGetAccessToken = async () => 'fake-token';
+
 describe('summarizeOpportunities', () => {
   const items = [opp('a', 'A'), opp('b', 'B')];
-  const options = { apiKey: 'k', model: 'm' };
+  const options = { project: 'p', location: 'us-central1', model: 'm', getAccessToken: fakeGetAccessToken };
 
   it('returns a Map of id -> summary for a well-formed JSON response', async () => {
     const fetchImpl = fakeFetchOk(JSON.stringify([{ id: 'a', summary: 'Summary A' }, { id: 'b', summary: 'Summary B' }]));
@@ -42,18 +44,26 @@ describe('summarizeOpportunities', () => {
     assert.equal(result.get('a'), 'Fenced summary');
   });
 
-  it('returns an empty Map for an empty batch without calling fetch', async () => {
-    let called = false;
+  it('returns an empty Map for an empty batch without calling fetch or auth', async () => {
+    let fetchCalled = false;
+    let authCalled = false;
     const fetchImpl = async () => {
-      called = true;
+      fetchCalled = true;
     };
-    const result = await summarizeOpportunities([], { ...options, fetchImpl });
+    const getAccessToken = async () => {
+      authCalled = true;
+      return 'x';
+    };
+    const result = await summarizeOpportunities([], { ...options, fetchImpl, getAccessToken });
     assert.equal(result.size, 0);
-    assert.equal(called, false);
+    assert.equal(fetchCalled, false);
+    assert.equal(authCalled, false);
   });
 
-  it('throws when apiKey or model is missing', async () => {
-    await assert.rejects(() => summarizeOpportunities(items, { apiKey: '', model: 'm', fetchImpl: fakeFetchOk('[]') }));
+  it('throws when project or model is missing', async () => {
+    await assert.rejects(() =>
+      summarizeOpportunities(items, { ...options, project: '', fetchImpl: fakeFetchOk('[]') }),
+    );
   });
 
   it('throws on a non-2xx HTTP response', async () => {
@@ -73,11 +83,44 @@ describe('summarizeOpportunities', () => {
   it('propagates a network-level failure', async () => {
     await assert.rejects(() => summarizeOpportunities(items, { ...options, fetchImpl: fakeFetchThrows() }), /network unreachable/);
   });
+
+  it('propagates an access-token/auth failure', async () => {
+    const getAccessToken = async () => {
+      throw new Error('ADC credentials not found');
+    };
+    await assert.rejects(
+      () => summarizeOpportunities(items, { ...options, getAccessToken, fetchImpl: fakeFetchOk('[]') }),
+      /ADC credentials not found/,
+    );
+  });
+
+  it('sends the access token as a Bearer header, not a query param', async () => {
+    let seenUrl;
+    let seenAuthHeader;
+    const fetchImpl = async (url, init) => {
+      seenUrl = url;
+      seenAuthHeader = init.headers.Authorization;
+      return { ok: true, json: async () => ({ candidates: [{ content: { parts: [{ text: '[]' }] } }] }) };
+    };
+    await summarizeOpportunities(items, { ...options, getAccessToken: async () => 'my-token', fetchImpl });
+    assert.equal(seenAuthHeader, 'Bearer my-token');
+    assert.ok(!seenUrl.includes('my-token'));
+  });
+
+  it('uses the bare aiplatform host for the "global" location', async () => {
+    let seenUrl;
+    const fetchImpl = async (url) => {
+      seenUrl = url;
+      return { ok: true, json: async () => ({ candidates: [{ content: { parts: [{ text: '[]' }] } }] }) };
+    };
+    await summarizeOpportunities(items, { ...options, location: 'global', fetchImpl });
+    assert.ok(seenUrl.startsWith('https://aiplatform.googleapis.com/'));
+  });
 });
 
 describe('attachSummaries', () => {
   const items = [opp('a', 'A'), opp('b', 'B')];
-  const options = { apiKey: 'k', model: 'm' };
+  const options = { project: 'p', location: 'us-central1', model: 'm', getAccessToken: fakeGetAccessToken };
 
   it('attaches .summary to each opportunity on success', async () => {
     const fetchImpl = fakeFetchOk(JSON.stringify([{ id: 'a', summary: 'Summary A' }, { id: 'b', summary: 'Summary B' }]));
@@ -97,6 +140,14 @@ describe('attachSummaries', () => {
 
   it('sets .summary to null on a network failure -- never throws', async () => {
     const result = await attachSummaries(items, { ...options, fetchImpl: fakeFetchThrows() });
+    assert.equal(result.every((o) => o.summary === null), true);
+  });
+
+  it('sets .summary to null on an auth failure -- never throws', async () => {
+    const getAccessToken = async () => {
+      throw new Error('ADC credentials not found');
+    };
+    const result = await attachSummaries(items, { ...options, getAccessToken });
     assert.equal(result.every((o) => o.summary === null), true);
   });
 

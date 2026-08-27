@@ -10,10 +10,13 @@ live.
 `DISCORD_BOT_TOKEN` (only `GatewayIntentBits.Guilds` requested).
 `postOpportunity(client, opportunity)` builds a classic `EmbedBuilder`
 (title=link, color by kind, fields for date/location/payment/company/tags-
-as-hashtags/calendar) and sends it to `DISCORD_CHANNEL_ID`. `runPipeline()`
-calls this once per new opportunity, 300ms apart, capped to 15 on the very
-first run ever (empty store) so the whole historical catalogue doesn't get
-dumped into the channel at once.
+as-hashtags/calendar) and sends it to `DISCORD_CHANNEL_ID`. The embed
+description shows `opportunity.summary` (the Vertex AI-generated sentence,
+see [architecture.md](./architecture.md)) when present, and no description
+at all otherwise — never the raw scraped text, same convention as
+`digest.js` below. `runPipeline()` calls this once per new opportunity,
+300ms apart, capped to 15 on the very first run ever (empty store) so the
+whole historical catalogue doesn't get dumped into the channel at once.
 
 ## What's prototyped but not wired in: the Components V2 digest
 

@@ -25,7 +25,10 @@ export function formatOpportunityEmbed(opportunity) {
     );
 
   if (opportunity.link) embed.setURL(opportunity.link);
-  if (opportunity.description) embed.setDescription(opportunity.description);
+  // Prefer the Gemini-generated summary over the raw scraped description --
+  // the latter is usually promotional filler from the source site, and
+  // showing nothing beats showing that (same convention as discord/digest.js).
+  if (opportunity.summary) embed.setDescription(opportunity.summary);
   if (opportunity.payment) embed.addFields({ name: 'Оплата', value: opportunity.payment, inline: true });
   if (opportunity.company) embed.addFields({ name: 'Компанія', value: opportunity.company, inline: true });
   const hashtags = (opportunity.tags || []).map(toHashtag).filter(Boolean).join(' ');

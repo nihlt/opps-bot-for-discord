@@ -57,21 +57,28 @@ were shown working against the real Discord channel — but `runPipeline()`
 still posts the older one-embed-per-item format via `discord/post.js`. See
 [architecture.md](./architecture.md#whats-actually-wired-in).
 
-## Gemini summarization is similarly built but not wired in
+## Gemini summarization went through two auth mechanisms before it worked
 
-Same caveat as above, for `lib/summarize.js`. `writeToFeed()` will happily
-write a `Summary` property if an opportunity has `.summary` set, but
-nothing in `runPipeline()` ever calls `attachSummaries()` to set it. As of
-this writing, every row in "Opportunities Feed" has a blank `Summary`.
+`lib/summarize.js` was first built against the plain Generative Language
+API (`?key=GEMINI_API_KEY` query param). Live testing against the real
+`.env` value returned `401 UNAUTHENTICATED` — that key's format (`AQ....`)
+doesn't match a standard AI Studio key (`AIzaSy...`), and it turned out to
+be provisioned for Vertex AI instead. Rewritten to use Vertex AI with
+OAuth2 access tokens resolved from `GOOGLE_APPLICATION_CREDENTIALS`
+(service account JSON) via the `google-auth-library` package, sent as a
+`Bearer` header rather than a query param. **Confirmed working live**
+against `GOOGLE_CLOUD_PROJECT`/`GOOGLE_CLOUD_LOCATION=global`/
+`GEMINI_MODEL=gemini-3.7-flash` — `gemini-3.7-flash` is a real, reachable
+model id on this Vertex AI project. This is now wired into
+`runPipeline()`: every new batch gets summarized via a single Vertex AI
+call before Notion write and Discord post (see
+[architecture.md](./architecture.md)).
 
-## `GEMINI_MODEL` value is unverified
-
-`.env` currently sets `GEMINI_MODEL=gemini-3.7-flash`. Whether that's a
-real, currently-available Gemini model id was not confirmed against
-Google's model catalog at the time this was wired up — `summarize.js` will
-surface a clean failure (see
-[resilience.md](./resilience.md#the-geminillm-api-doesnt-respond-times-out-or-errors))
-if it isn't, but this is worth double-checking rather than assuming.
+If `GOOGLE_APPLICATION_CREDENTIALS` ever points at a missing/expired/
+revoked service account, or the project/location/model combination stops
+being valid, summarization degrades exactly as described in
+[resilience.md](./resilience.md#the-vertex-ai-gemini-api-doesnt-respond-times-out-or-errors) —
+blank summaries, no crash, no alert.
 
 ## No process supervision
 

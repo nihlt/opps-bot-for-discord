@@ -25,15 +25,26 @@ config/sources.json (9 registered sources, 1 disabled)
   appendNewEvents() (src/lib/store.js)
   — dedupes by sha256 id against data/events.jsonl, atomic write
         │
+        ▼
+  attachSummaries() (src/lib/summarize.js)
+  — one batched Vertex AI (Gemini) call for the whole new-events batch,
+    asks for a JSON array of {id, summary}. ANY failure (auth, network,
+    bad JSON, HTTP error) degrades every item's .summary to null rather
+    than throwing -- never blocks what comes next.
+        │
         ├──────────────────────────────┐
         ▼                              ▼
   writeToFeed() (src/lib/notion-feed.js)   postOpportunity() per item
   — writes NEW, non-notion-sourced          (src/discord/post.js)
     opportunities to "Opportunities Feed"   — ONE embed per new opportunity,
     in Notion, each with a heuristic        posted to DISCORD_CHANNEL_ID,
-    Score (src/lib/scoring.js). Summary      300ms delay between sends,
-    property is NOT filled here today        capped to 15 on the very
-    (see "what's not wired" below).          first run ever (empty store)
+    Score (src/lib/scoring.js) and a        300ms delay between sends,
+    Summary when one came back from the     capped to 15 on the very
+    Vertex AI call above (omitted, not      first run ever (empty store).
+    left blank with a placeholder,          Embed description shows
+    otherwise).                             .summary if present, otherwise
+                                             no description line at all
+                                             (never the raw scraped text).
 ```
 
 `src/scheduler.js` wraps `runPipeline()` in `node-cron` (`CRON_SCHEDULE`)
@@ -52,9 +63,9 @@ both kinds are listed in the table below, distinguished by the last column)
 | Payment policy filter | `lib/normalize.js` | Yes |
 | Dedupe/store | `lib/store.js` | Yes |
 | Heuristic score | `lib/scoring.js` | Yes (used by `writeToFeed`) |
-| Write to Notion Feed | `lib/notion-feed.js` | Yes |
-| Post one embed per item | `discord/post.js` | Yes |
-| Gemini summarization | `lib/summarize.js` | **No** — never called from `pipeline.js` |
+| Vertex AI (Gemini) summarization | `lib/summarize.js` | Yes — called on every new batch, before Notion write and Discord post |
+| Write to Notion Feed (incl. Summary) | `lib/notion-feed.js` | Yes |
+| Post one embed per item (prefers `.summary`, no raw-description fallback) | `discord/post.js` | Yes |
 | Components V2 digest (top-3 + thread) | `discord/digest.js` | **No** — never called from `pipeline.js` |
 | Percentile accent colors | `discord/score-color.js` | **No** — only reachable via `digest.js`, which isn't wired in |
 | Read Score/Hook/Summary back from Notion | *(doesn't exist yet)* | No such module exists |
@@ -63,7 +74,13 @@ both kinds are listed in the table below, distinguished by the last column)
 Everything in the "No" rows was built, unit-tested, and demonstrated by
 sending real messages to the live Discord channel via one-off scripts run
 manually during development — it is real, working code, just not reachable
-from a cron run today.
+from a cron run today. `lib/summarize.js` went from "No" to "Yes" once it
+was moved from a direct Gemini API-key call (which failed —
+`GEMINI_API_KEY` turned out not to be a plain AI Studio key) to Vertex AI
+with ADC/OAuth2 auth (`google-auth-library`, `GOOGLE_APPLICATION_CREDENTIALS`)
+— see [assumptions-and-caveats.md](./assumptions-and-caveats.md) for that
+whole story. `digest.js`/`score-color.js` are next in line for the same
+treatment if/when someone decides to replace the per-item posting format.
 
 ## Module responsibilities (one line each)
 
@@ -83,8 +100,8 @@ from a cron run today.
 - `src/lib/store.js` — JSONL load/append with atomic write + id dedupe.
 - `src/lib/notion-feed.js` — writes to the "Opportunities Feed" Notion
   database. See [notion-integration.md](./notion-integration.md).
-- `src/lib/summarize.js` — Gemini-based one-sentence summarization,
-  batched, JSON-mode. Not wired in yet.
+- `src/lib/summarize.js` — Vertex AI (Gemini) one-sentence summarization,
+  batched, JSON-mode, OAuth2/ADC auth. Wired into `runPipeline()`.
 - `src/discord/client.js` — logs into Discord, resolves on ready.
 - `src/discord/post.js` — the live per-item embed formatter/sender.
 - `src/discord/digest.js` — the prototyped top-3-plus-thread Components V2
@@ -104,7 +121,8 @@ Every source module returns objects matching this shape (frozen by
   location, payment, tags, description, company, calendar,
   firstSeenAt,
   // added later in the pipeline, not by normalizeOpportunity itself:
-  summary   // only if lib/summarize.js's attachSummaries() was called (it isn't, in prod)
+  summary   // lib/summarize.js's attachSummaries() -- wired into runPipeline(),
+            // null if Vertex AI failed/hasn't run for this item
   hook      // only if a future Notion-read-back step attaches it (doesn't exist yet)
 }
 ```
