@@ -2,6 +2,7 @@ import { setTimeout as delay } from 'node:timers/promises';
 import { loadEnabledSources, fetchFromSource } from './sources/index.js';
 import { appendNewEvents, loadEvents } from './lib/store.js';
 import { applyEventPaymentPolicy } from './lib/normalize.js';
+import { writeToFeed } from './lib/notion-feed.js';
 import { postOpportunity } from './discord/post.js';
 
 const FIRST_RUN_POST_CAP = 15;
@@ -67,6 +68,14 @@ export async function runPipeline(client, { concurrency = Number(process.env.SCR
 
   const { opportunities, failures } = await scrapeAllSources(concurrency);
   const newEvents = await appendNewEvents(opportunities);
+
+  let feedResult = { written: 0, skipped: 0, failures: [] };
+  try {
+    feedResult = await writeToFeed(newEvents);
+  } catch (error) {
+    console.error('[pipeline] notion-feed write failed:', error.message);
+  }
+
   const toPost = wasFirstRun ? pickFirstRunBatch(newEvents, FIRST_RUN_POST_CAP) : newEvents;
 
   let postedCount = 0;
@@ -82,9 +91,18 @@ export async function runPipeline(client, { concurrency = Number(process.env.SCR
 
   console.log(
     `[pipeline] scraped=${opportunities.length} new=${newEvents.length} posted=${postedCount}` +
+      ` notionFeedWritten=${feedResult.written}` +
       (wasFirstRun ? ' (first run, capped)' : '') +
-      (failures.length ? ` failedSources=${failures.map((f) => f.sourceId).join(',')}` : ''),
+      (failures.length ? ` failedSources=${failures.map((f) => f.sourceId).join(',')}` : '') +
+      (feedResult.failures.length ? ` notionFeedFailures=${feedResult.failures.length}` : ''),
   );
 
-  return { scraped: opportunities.length, newCount: newEvents.length, postedCount, failures, wasFirstRun };
+  return {
+    scraped: opportunities.length,
+    newCount: newEvents.length,
+    postedCount,
+    failures,
+    wasFirstRun,
+    notionFeed: feedResult,
+  };
 }
