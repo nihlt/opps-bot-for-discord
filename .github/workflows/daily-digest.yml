@@ -2,12 +2,16 @@ name: Daily digest
 
 on:
   schedule:
-    # 20:00 Kyiv time -> 17:00 UTC in EEST (summer) / 18:00 UTC in EET
+    # ~20:00 Kyiv time -> 17:07 UTC in EEST (summer) / 18:07 UTC in EET
     # (winter). GitHub Actions cron is UTC-only and does not shift for
-    # daylight saving, so this drifts to 19:00/21:00 Kyiv depending on the
+    # daylight saving, so this drifts to 19:07/21:07 Kyiv depending on the
     # season -- pinned to the summer (EEST) offset since that's the
     # current season. Adjust if a different local trigger time is wanted.
-    - cron: '0 17 * * *'
+    # Minute deliberately off :00 -- GitHub documents scheduled runs as
+    # more prone to delay right at the top of the hour (queue load peaks
+    # there); shifting by a few minutes reduces, but doesn't eliminate,
+    # how late an actual run can start.
+    - cron: '7 17 * * *'
   workflow_dispatch: {}
 
 # GitHub queues/skips overlapping runs of this group natively -- the same
