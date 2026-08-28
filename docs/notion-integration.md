@@ -41,17 +41,10 @@ assuming "just merge them" is obviously right.
   (rich text, reserved for the *external* scheduled Claude agent — not
   populated by anything today), `Summary` (rich text, populated by **this
   pipeline's own Gemini call**, `src/lib/summarize.js`).
-- **`Payable` must exist in the live database's schema before
-  `writeToFeed()` will succeed** — Notion's API rejects a page-create call
-  that references a property outside the actual schema. It was added via
-  the Notion MCP connector for every other property added this way
-  (Score, Hook, Summary) — but that connector's token had expired when
-  `Payable` was introduced, so **this one needs to be added by hand**:
-  open "Opportunities Feed" in Notion → add property → name it exactly
-  `Payable` → type Checkbox. Until that's done, every new item's Feed
-  write fails (caught per-item, so it doesn't block the rest of the
-  pipeline, but it does trigger an admin DM every run via
-  [discord-integration.md](./discord-integration.md#admin-dm-alerts)).
+- `Payable` was added to the live schema via the Notion MCP connector,
+  same as Score/Hook/Summary before it (the connector's token had briefly
+  expired when this property was first introduced — reconnecting fixed
+  it, no manual schema edit needed after all).
 - **Populated by**: `src/lib/notion-feed.js`'s `writeToFeed()`, called from
   `runPipeline()` for every genuinely new, non-`notion`-sourced
   opportunity. One-way write only — nothing reads this database back into
