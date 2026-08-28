@@ -3,7 +3,7 @@ import { describe, it } from 'node:test';
 import { mkdtemp, readdir, rm } from 'node:fs/promises';
 import path from 'node:path';
 import { tmpdir } from 'node:os';
-import { loadEvents, appendNewEvents } from '../src/lib/store.js';
+import { loadEvents, appendNewEvents, filterNewOpportunities } from '../src/lib/store.js';
 
 async function withTempStore(run) {
   const dir = await mkdtemp(path.join(tmpdir(), 'opps-store-test-'));
@@ -76,6 +76,30 @@ describe('store', () => {
       const result = await appendNewEvents([fakeEvent('a')], filePath);
       assert.deepEqual(result, []);
       assert.equal((await loadEvents(filePath)).length, 1);
+    });
+  });
+
+  it('filterNewOpportunities returns only ids not already in the store, without writing anything', async () => {
+    await withTempStore(async (filePath) => {
+      await appendNewEvents([fakeEvent('a'), fakeEvent('b')], filePath);
+
+      const candidates = await filterNewOpportunities([fakeEvent('a'), fakeEvent('c'), fakeEvent('d')], filePath);
+      assert.deepEqual(candidates.map((e) => e.id), ['c', 'd']);
+
+      // Nothing written -- store still only has the original 2.
+      assert.equal((await loadEvents(filePath)).length, 2);
+    });
+  });
+
+  it('lets a caller attach a field (e.g. .summary) to filterNewOpportunities results before persisting', async () => {
+    await withTempStore(async (filePath) => {
+      const candidates = await filterNewOpportunities([fakeEvent('a')], filePath);
+      const withSummary = candidates.map((e) => ({ ...e, summary: 'Concrete benefit.' }));
+      const [written] = await appendNewEvents(withSummary, filePath);
+      assert.equal(written.summary, 'Concrete benefit.');
+
+      const [stored] = await loadEvents(filePath);
+      assert.equal(stored.summary, 'Concrete benefit.');
     });
   });
 

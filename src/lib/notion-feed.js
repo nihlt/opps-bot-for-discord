@@ -53,6 +53,11 @@ export function toFeedProperties(opportunity) {
   // Only set when present -- a failed/unrun Gemini summarization leaves
   // this blank rather than writing a null placeholder over it.
   if (opportunity.summary) properties.Summary = { rich_text: richText(opportunity.summary) };
+  // "when did we find this" -- lib/store.js stamps firstSeenAt on every
+  // item at persist-time, so this should always be present by the time
+  // writeToFeed() runs; still guarded in case a caller passes something
+  // that bypassed the store (e.g. a test fixture).
+  if (opportunity.firstSeenAt) properties['Date Found'] = { date: { start: opportunity.firstSeenAt } };
 
   const deadline = buildDeadlineProperty(opportunity);
   if (deadline) properties.Deadline = deadline;

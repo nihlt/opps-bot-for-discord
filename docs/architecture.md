@@ -10,11 +10,12 @@ flowchart TD
     L -->|login fails| G["GitHub's built-in workflow-failure email<br/>no Discord channel exists yet to alert through"]
     L -->|success| S["scrapeAllSources<br/>9 sources, bounded concurrency"]
     S --> P[applyEventPaymentPolicy per item]
-    P --> D["appendNewEvents<br/>dedupe vs data/events.jsonl"]
-    D --> V["attachSummaries<br/>Vertex AI, one batched call"]
+    P --> F["filterNewOpportunities<br/>diff vs data/events.jsonl, no write yet"]
+    F --> V["attachSummaries<br/>Vertex AI, one batched call, candidates only"]
     V -->|fails| V2[".summary = null for the whole batch"]
-    V --> N["writeToFeed<br/>Notion Opportunities Feed"]
-    V --> C["postDigest<br/>one message per category, top 3 + thread overflow each"]
+    V --> D["appendNewEvents<br/>persist WITH summary + stamped firstSeenAt"]
+    D --> N["writeToFeed<br/>Notion Opportunities Feed, incl. Date Found"]
+    D --> C["postDigest<br/>one message per category, top 3 + thread overflow each"]
     S -->|a source fails| I[issues.push]
     V2 --> I
     N -->|fails| I
@@ -50,15 +51,24 @@ config/sources.json (9 registered sources, 1 disabled)
     on free non-fellowship events, leaves jobs/kaggle untouched
         │
         ▼
-  appendNewEvents() (src/lib/store.js)
-  — dedupes by sha256 id against data/events.jsonl, atomic write
+  filterNewOpportunities() (src/lib/store.js)
+  — diffs against data/events.jsonl by sha256 id, WITHOUT writing yet
         │
         ▼
   attachSummaries() (src/lib/summarize.js)
-  — one batched Vertex AI (Gemini) call for the whole new-events batch,
+  — one batched Vertex AI (Gemini) call for just the new candidates,
     asks for a JSON array of {id, summary}. ANY failure (auth, network,
     bad JSON, HTTP error) degrades every item's .summary to null rather
     than throwing -- never blocks what comes next.
+        │
+        ▼
+  appendNewEvents() (src/lib/store.js)
+  — persists the now-summarized items atomically; stamps `firstSeenAt`
+    on anything that doesn't already have one (only sources/notion.js
+    ever sets it directly, from Notion's own "Date found"). Summarizing
+    BEFORE this write (not after, as it used to) is what lets `.summary`
+    actually end up in data/events.jsonl instead of being discarded once
+    the run ends.
         │
         ├──────────────────────────────┐
         ▼                              ▼
@@ -66,13 +76,14 @@ config/sources.json (9 registered sources, 1 disabled)
   — writes NEW, non-notion-sourced          — groups into 5 categories
     opportunities to "Opportunities Feed"     (Hackathons/Events/Fellowship
     in Notion, each with a heuristic          Programs/Jobs/Online Events),
-    Score (src/lib/scoring.js) and a          one channel message PER
-    Summary when one came back from the       category (top 3 by score),
-    Vertex AI call above (omitted, not         each with its own overflow
-    left blank with a placeholder,             thread. Ranked against the
-    otherwise).                                FULL catalogue (loadEvents()
+    Score (src/lib/scoring.js), Payable       one channel message PER
+    checkbox (hasMoneyPrize()), Date           category (top 3 by score),
+    Found (firstSeenAt), and Summary           each with its own overflow
+    when one came back from Vertex AI          thread. Ranked against the
+    (omitted, not left blank, otherwise).      FULL catalogue (loadEvents()
                                                 re-read after append), not
-                                                just today's batch.
+                                                just today's batch. Which
+                                                items post — see below.
         │                                       │
         └───────────────────┬───────────────────┘
                              ▼
@@ -82,6 +93,26 @@ config/sources.json (9 registered sources, 1 disabled)
                 "alert on every failure, no exceptions," batched into one
                 message rather than one DM per problem.
 ```
+
+### Which items actually get posted: `DIGEST_LOOKBACK_DAYS`
+
+By default (this env var unset), `postDigest()` is called with exactly
+this run's genuinely-new items (`appendNewEvents()`'s return value, first-
+run-capped at 15 — see below) — for a strictly daily cadence, that's
+already "what was found today," and it can never re-post the same item
+twice no matter how many times the pipeline runs.
+
+Setting `DIGEST_LOOKBACK_DAYS=N` (e.g. for an ad-hoc `npm start` or a
+manually-dispatched Actions run) switches to a different, broader
+selection instead: every item in the **full stored catalogue** whose
+`firstSeenAt` falls within the last N days, regardless of which run
+appended it. This is for a deliberate "show me everything found in the
+last N days" request — confirmed live (`DIGEST_LOOKBACK_DAYS=3 npm
+start`, `scraped=147 new=3 posted=yes ... (lookback=3d, toPost=3)`).
+**Accepted tradeoff**: unlike the default mode, this WILL re-post an item
+already posted earlier today if the pipeline runs more than once inside
+the window — fine for a one-off retrospective look, not something the
+scheduled GitHub Actions run should ever set.
 
 `src/index.js` is the entrypoint: log into Discord, run the pipeline
 **once**, destroy the client, exit — `.github/workflows/daily-digest.yml`
@@ -216,7 +247,9 @@ Every source module returns objects matching this shape (frozen by
                  // scoring-and-highlighting.md for what reads it
   // added later in the pipeline, not by normalizeOpportunity itself:
   summary   // lib/summarize.js's attachSummaries() -- always called for
-            // new events; null if Vertex AI failed/hasn't run for this item
+            // new events before they're persisted (see pipeline.js), so
+            // this is now part of the stored record too, not just a
+            // this-run-only value; null if Vertex AI failed for this item
   hook      // only if a future Notion-read-back step attaches it (doesn't exist yet)
 }
 ```

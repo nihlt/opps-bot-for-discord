@@ -1,5 +1,5 @@
 import { loadEnabledSources, fetchFromSource } from './sources/index.js';
-import { appendNewEvents, loadEvents } from './lib/store.js';
+import { appendNewEvents, loadEvents, filterNewOpportunities } from './lib/store.js';
 import { applyEventPaymentPolicy } from './lib/normalize.js';
 import { attachSummaries } from './lib/summarize.js';
 import { writeToFeed } from './lib/notion-feed.js';
@@ -59,6 +59,21 @@ async function scrapeAllSources(concurrency) {
 }
 
 /**
+ * Items whose firstSeenAt falls within the last `lookbackDays`, out of
+ * the full stored catalogue -- not just this run's newly-appended items.
+ * Used for an explicit, on-demand "show me the last N days" digest
+ * (DIGEST_LOOKBACK_DAYS), separate from the normal daily behavior (which
+ * posts only what's genuinely new since the last run, and never risks
+ * re-posting the same item twice). An item with no firstSeenAt (shouldn't
+ * happen going forward -- see lib/store.js -- but could for anything
+ * persisted before that fix shipped) is excluded rather than guessed at.
+ */
+function withinLookbackWindow(catalogue, lookbackDays) {
+  const windowStart = Date.now() - lookbackDays * 24 * 60 * 60 * 1000;
+  return catalogue.filter((opportunity) => opportunity.firstSeenAt && Date.parse(opportunity.firstSeenAt) >= windowStart);
+}
+
+/**
  * Scrapes every enabled source, dedupes against data/events.jsonl,
  * summarizes new items via Vertex AI, writes them to the Notion Feed, and
  * posts a digest to Discord (top 3 in the channel message, the rest in a
@@ -68,7 +83,21 @@ async function scrapeAllSources(concurrency) {
  * every failure, no exceptions," but batched into one message per run
  * rather than one DM per problem.
  */
-export async function runPipeline(client, { concurrency = Number(process.env.SCRAPE_CONCURRENCY) || 3 } = {}) {
+export async function runPipeline(
+  client,
+  {
+    concurrency = Number(process.env.SCRAPE_CONCURRENCY) || 3,
+    // Ad-hoc/manual use only -- e.g. `DIGEST_LOOKBACK_DAYS=3 npm start` to
+    // see everything found in the last 3 days. Left unset, the normal
+    // daily behavior (post only this run's genuinely-new items) applies;
+    // setting it switches to re-scanning the whole catalogue by
+    // firstSeenAt, which WILL re-post an item already posted in an
+    // earlier run today if run more than once within the window -- an
+    // accepted tradeoff for a deliberately-requested retrospective view,
+    // not something the scheduled GitHub Actions run should ever set.
+    lookbackDays = process.env.DIGEST_LOOKBACK_DAYS ? Number(process.env.DIGEST_LOOKBACK_DAYS) : null,
+  } = {},
+) {
   const issues = [];
   const wasFirstRun = (await loadEvents()).length === 0;
 
@@ -78,15 +107,19 @@ export async function runPipeline(client, { concurrency = Number(process.env.SCR
     issues.push(`${label}: ${failures.map((f) => `${f.sourceId} (${f.message})`).join('; ')}`);
   }
 
-  const newEvents = await appendNewEvents(opportunities);
-  const catalogue = await loadEvents(); // full stored catalogue, including today's new events -- used to rank/highlight against, not just today's batch
-  const summarized = await attachSummaries(newEvents, undefined, (error) => {
+  // Summarize BEFORE persisting, not after -- so `.summary` ends up in
+  // the same store write as everything else instead of being computed
+  // and then discarded (see lib/store.js's filterNewOpportunities()).
+  const candidates = await filterNewOpportunities(opportunities);
+  const summarized = await attachSummaries(candidates, undefined, (error) => {
     issues.push(`Vertex AI summarization failed, posted/written without summaries: ${error.message}`);
   });
+  const newEvents = await appendNewEvents(summarized);
+  const catalogue = await loadEvents(); // full stored catalogue, including today's new events -- used to rank/highlight against, not just today's batch
 
   let feedResult = { written: 0, skipped: 0, failures: [] };
   try {
-    feedResult = await writeToFeed(summarized);
+    feedResult = await writeToFeed(newEvents);
     if (feedResult.failures.length > 0) {
       issues.push(`Notion Feed: ${feedResult.failures.length} row(s) failed to write: ${feedResult.failures.map((f) => f.message).join('; ')}`);
     }
@@ -95,7 +128,11 @@ export async function runPipeline(client, { concurrency = Number(process.env.SCR
     console.error('[pipeline] notion-feed write failed:', error.message);
   }
 
-  const toPost = wasFirstRun ? pickFirstRunBatch(summarized, FIRST_RUN_POST_CAP) : summarized;
+  const toPost = lookbackDays
+    ? withinLookbackWindow(catalogue, lookbackDays)
+    : wasFirstRun
+      ? pickFirstRunBatch(newEvents, FIRST_RUN_POST_CAP)
+      : newEvents;
 
   let digestMessage = null;
   if (toPost.length > 0) {
@@ -114,6 +151,7 @@ export async function runPipeline(client, { concurrency = Number(process.env.SCR
     `[pipeline] scraped=${opportunities.length} new=${newEvents.length} posted=${digestMessage ? 'yes' : 'no'}` +
       ` notionFeedWritten=${feedResult.written}` +
       (wasFirstRun ? ' (first run, capped)' : '') +
+      (lookbackDays ? ` (lookback=${lookbackDays}d, toPost=${toPost.length})` : '') +
       (issues.length ? ` issues=${issues.length}` : ''),
   );
 

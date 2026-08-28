@@ -40,9 +40,16 @@ assuming "just merge them" is obviously right.
   `External Id` (our sha256 `id`, for cross-referencing/dedup), `Hook`
   (rich text, reserved for the *external* scheduled Claude agent — not
   populated by anything today), `Summary` (rich text, populated by **this
-  pipeline's own Gemini call**, `src/lib/summarize.js`).
-- `Payable` was added to the live schema via the Notion MCP connector,
-  same as Score/Hook/Summary before it (the connector's token had briefly
+  pipeline's own Gemini call**, `src/lib/summarize.js`), `Date Found`
+  (date, `opportunity.firstSeenAt` — when *our own pipeline* first stored
+  this item; see [architecture.md](./architecture.md#opportunity-shape)
+  for how that's stamped, and note this is a different fact from this
+  database's own row-creation timestamp, since a row can be created by
+  `writeToFeed()` well after the underlying opportunity was first seen if
+  a run's Notion write failed and retried later).
+- `Payable` and `Date Found` were added to the live schema via the Notion
+  MCP connector, same as Score/Hook/Summary before it (the connector's
+  token had briefly
   expired when this property was first introduced — reconnecting fixed
   it, no manual schema edit needed after all).
 - **Populated by**: `src/lib/notion-feed.js`'s `writeToFeed()`, called from

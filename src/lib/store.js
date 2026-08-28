@@ -23,6 +23,21 @@ export async function loadEvents(filePath = defaultEventsPath) {
 }
 
 /**
+ * Returns the subset of `opportunities` not already present in the store
+ * (by id), without writing anything. Lets a caller do work on just the
+ * genuinely-new subset -- e.g. Vertex AI summarization -- BEFORE calling
+ * appendNewEvents(), so the result (like `.summary`) gets persisted in
+ * the same write instead of being computed and then silently discarded
+ * (which is what happened before: summarization ran strictly after
+ * storage, so no summary ever made it into data/events.jsonl).
+ */
+export async function filterNewOpportunities(opportunities, filePath = defaultEventsPath) {
+  const existing = await loadEvents(filePath);
+  const seenIds = new Set(existing.map((event) => event.id));
+  return opportunities.filter((opportunity) => !seenIds.has(opportunity.id));
+}
+
+/**
  * Appends only the Opportunities whose `id` isn't already in the store.
  * Rewrites the whole file atomically (temp file + rename) so a crash
  * mid-write never leaves a truncated/corrupt events.jsonl behind.

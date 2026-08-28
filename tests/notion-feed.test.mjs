@@ -33,6 +33,15 @@ describe('toFeedProperties', () => {
     assert.equal(props.Summary, undefined);
     assert.equal(typeof props.Score.number, 'number');
     assert.deepEqual(props.Payable, { checkbox: false });
+    assert.equal(props['Date Found'], undefined);
+  });
+
+  it('includes Date Found when firstSeenAt is present, omits it when absent', () => {
+    const withDate = toFeedProperties({ id: 'x', sourceId: 'ain', kind: 'event', title: 't', firstSeenAt: '2026-08-20T10:00:00.000Z' });
+    assert.deepEqual(withDate['Date Found'], { date: { start: '2026-08-20T10:00:00.000Z' } });
+
+    const withoutDate = toFeedProperties({ id: 'x', sourceId: 'ain', kind: 'event', title: 't' });
+    assert.equal(withoutDate['Date Found'], undefined);
   });
 
   it('sets Payable to true for a hackathon/fellowship with a real prize figure', () => {
