@@ -136,18 +136,26 @@ persisted across GitHub Actions runs via the same `actions/cache` step
 (see [the hosting section](#hosting-github-actions)) — without that, the
 weekly/monthly totals would silently reset to zero every run.
 
-**Dollar cost is only computed if you configure it** —
-`GEMINI_INPUT_PRICE_PER_1M_TOKENS` / `GEMINI_OUTPUT_PRICE_PER_1M_TOKENS`
-(both required; either missing means every bucket shows "ціна не
-налаштована" instead of a number). This is deliberate: there's no reliable
-built-in knowledge of what a specific Gemini model costs per token (rates
-vary by model and change over time), so `formatUsageReport()` refuses to
-guess a number rather than risk reporting a fabricated cost as if it were
-real. Look up the current Vertex AI generative-AI pricing for whatever
-`GEMINI_MODEL` is set to, per 1 million tokens, before setting these.
+**Dollar cost uses a hardcoded pricing table** (`PRICING_SCHEDULE` in
+`lib/llm-usage.js`), given directly by the user from Google's official
+Vertex AI pricing for `GEMINI_MODEL` (`gemini-3.7-flash`): $0.75/1M input
+tokens, $3.75/1M output+thinking tokens through 2026, doubling to
+$1.50/$7.50 per 1M on **2027-01-01**. Each usage record is priced using
+whichever tier was in effect on *that record's own timestamp*
+(`priceFor()`), not "whichever tier applies today" — so a cost total that
+spans the New Year boundary (e.g. a 30-day bucket computed in early
+January) still prices December's calls at the December rate, not
+retroactively at the new one. This table only covers what this codebase
+actually calls (plain `generateContent`) — context caching and
+Search/Maps grounding have their own separate pricing but aren't used
+anywhere in this pipeline, so they're not modeled. **If `GEMINI_MODEL`
+ever changes to a different model, this table needs updating by hand** —
+there's no API this code calls to fetch live pricing, and no code here
+verifies the table still matches reality.
 
-This whole report — token counts, and cost if configured — is what gets
-appended to the admin DM every run (see the alerting paragraph above and
+This whole report — token counts and cost, always both, no
+"unconfigured" state possible any more — is what gets appended to the
+admin DM every run (see the alerting paragraph above and
 [discord-integration.md](./discord-integration.md#admin-dm-alerts-now-sent-every-run-not-just-on-failure)).
 
 `src/index.js` is the entrypoint: log into Discord, run the pipeline

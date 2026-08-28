@@ -170,16 +170,12 @@ export async function runPipeline(
   // message so they're not buried under the routine cost line.
   const usageRecords = await loadUsage();
   const usageSummary = summarizeUsage(usageRecords, runStartedAt);
-  const pricePerMillion = {
-    input: process.env.GEMINI_INPUT_PRICE_PER_1M_TOKENS ? Number(process.env.GEMINI_INPUT_PRICE_PER_1M_TOKENS) : null,
-    output: process.env.GEMINI_OUTPUT_PRICE_PER_1M_TOKENS ? Number(process.env.GEMINI_OUTPUT_PRICE_PER_1M_TOKENS) : null,
-  };
 
   const reportLines = [];
   if (issues.length > 0) {
     reportLines.push(`${issues.length} issue(s) this run:`, ...issues.map((issue, i) => `${i + 1}. ${issue}`), '');
   }
-  reportLines.push('Вартість LLM:', formatUsageReport(usageSummary, pricePerMillion));
+  reportLines.push('Вартість LLM:', formatUsageReport(usageSummary));
 
   await notifyAdmins(client, `[opps-bot]\n${reportLines.join('\n')}`);
 

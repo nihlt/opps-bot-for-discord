@@ -73,11 +73,6 @@ jobs:
           GOOGLE_CLOUD_LOCATION: global
           GOOGLE_APPLICATION_CREDENTIALS: ${{ runner.temp }}/gcp-key.json
           SCRAPE_CONCURRENCY: 3
-          # Optional -- omit both to leave $ cost unestimated (token counts
-          # still get reported). See docs/architecture.md for where to find
-          # current per-model Vertex AI pricing before setting these.
-          GEMINI_INPUT_PRICE_PER_1M_TOKENS: ${{ secrets.GEMINI_INPUT_PRICE_PER_1M_TOKENS }}
-          GEMINI_OUTPUT_PRICE_PER_1M_TOKENS: ${{ secrets.GEMINI_OUTPUT_PRICE_PER_1M_TOKENS }}
 
       # Always-run, even on a failed pipeline step: whatever got
       # scraped/deduped before a later-stage crash still shouldn't be lost.
