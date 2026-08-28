@@ -180,7 +180,8 @@ and [resilience.md](./resilience.md) for the remaining honest caveats
 - `src/sources/*.js` — one per source; see [sources.md](./sources.md).
 - `src/lib/normalize.js` — the `Opportunity` shape contract, id hashing,
   date parsing, keyword-based tag/location inference, the payment policy
-  filter, `isFellowship()`.
+  filter, and the opportunity-classification predicates `isFellowship()`,
+  `isHackathon()`, `hasMoneyPrize()`.
 - `src/lib/scoring.js` — `scoreOpportunity()`, the 0-100 heuristic. See
   [scoring-and-highlighting.md](./scoring-and-highlighting.md).
 - `src/lib/store.js` — JSONL load/append with atomic write + id dedupe.

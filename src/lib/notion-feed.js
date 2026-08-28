@@ -1,5 +1,6 @@
 import { Client } from '@notionhq/client';
 import { scoreOpportunity } from './scoring.js';
+import { hasMoneyPrize } from './normalize.js';
 
 const MAX_TEXT_LENGTH = 1900;
 
@@ -35,6 +36,11 @@ export function toFeedProperties(opportunity) {
     Kind: { select: { name: opportunity.kind } },
     Source: { select: { name: opportunity.sourceId } },
     Score: { number: scoreOpportunity(opportunity) },
+    // Always set (true or false), not omitted like the optional fields
+    // below -- a checkbox has no meaningful "unset" state the way a blank
+    // rich-text field does, so leaving it out would just default to an
+    // unlabeled false in the Notion UI instead of an explicit one.
+    Payable: { checkbox: hasMoneyPrize(opportunity) },
     'External Id': { rich_text: richText(opportunity.id) },
   };
 

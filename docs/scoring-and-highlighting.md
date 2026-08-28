@@ -21,10 +21,11 @@ audience specifically, not a general "how good is this opportunity" score.
 - **Base, by category** (mutually exclusive, checked in this order):
   fellowship/stipend (`isFellowship()`, checks title+tags only — see below)
   → 65. Internship tag → 55. Hackathon/competition (`isHackathon()`, by
-  `sourceId` or a title/tag keyword match — also exported and reused by
-  `discord/digest.js`'s category grouping, see
-  [discord-integration.md](./discord-integration.md), so the score bump
-  and the "Hackathons" bucket can never quietly disagree with each other)
+  `sourceId` or a title/tag keyword match — lives in `lib/normalize.js`,
+  imported here, and reused by `discord/digest.js`'s category grouping
+  and by the payment-policy filter, see
+  [discord-integration.md](./discord-integration.md), so none of the
+  three can quietly disagree about what counts as a hackathon)
   → 55 (bumped from an initial 45 per feedback — "hackathons and
   competitions deserve the same tier as internships"). Generic event → 25.
   `kind: 'job'` is scored on a *different* axis entirely: base 30, plus a
@@ -83,6 +84,41 @@ Fellowships name themselves as such in the title; scanning free-text
 descriptions for a stray keyword is too loose. If you're tempted to widen
 this back to the description, don't, unless you also add a stronger
 qualifier than a bare "grant"/"грант" substring match.
+
+### The `Payable` checkbox / the `· $` marker
+
+`hasMoneyPrize()` (`src/lib/normalize.js`, alongside `isFellowship()` and
+`isHackathon()` — moved there specifically so this function and
+`applyEventPaymentPolicy()` could share one definition of "is this a
+hackathon" without a circular import with `lib/scoring.js`) answers a
+narrower question than "is this a fellowship/hackathon": **does it state
+an actual money figure**. True only when both hold:
+1. It's a fellowship (`isFellowship()`) or hackathon/competition
+   (`isHackathon()`) — never a job (a salary isn't "winning money" in the
+   same sense, and scoring already treats jobs on a separate axis).
+2. Its `payment` or `description` text matches the same
+   `currencyAmountPattern` used by the payment-policy filter — a bare
+   "funded" or "generous stipend" does **not** qualify; there has to be an
+   actual `$`/`₴`/`€`/number.
+
+This is deliberately conservative — the point is a reliable "this one
+pays" signal, not an optimistic guess. It drives two things: the `· $`
+suffix on the item's title in `discord/digest.js`, and the `Payable`
+checkbox column written by `lib/notion-feed.js` into "Opportunities Feed"
+(see [notion-integration.md](./notion-integration.md) — that property
+has to actually exist in the live database's schema, added by hand if the
+Notion MCP connector isn't available).
+
+**This surfaced and fixed a real, previously-invisible bug in the payment
+filter**: `applyEventPaymentPolicy()` used to clear the `payment` field
+for *any* non-fellowship event — including hackathons, even though a
+hackathon's `payment` field (e.g. scraped from dou.ua's own "when and
+where" block) is exactly as legitimate a "money paid to you" signal as a
+fellowship's. Before this feature, that bug had zero visible effect
+(nothing ever displayed `payment` in the digest), so it went unnoticed
+until `hasMoneyPrize()` needed a hackathon's real prize field to still be
+there. Fixed by exempting `isHackathon()` from that filter the same way
+`isFellowship()` already was.
 
 ### Calibration is a one-time snapshot, not a live target
 

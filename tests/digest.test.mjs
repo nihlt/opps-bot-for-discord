@@ -206,6 +206,23 @@ describe('postDigest', () => {
     assert.ok(payload.includes(hook));
   });
 
+  it('appends " · $" to the title for a hackathon/fellowship with a real prize figure', async () => {
+    const { channel, sentMessages } = makeFakeChannel();
+    const payable = opp('AI Hackathon', { sourceId: 'dou-hackathon', payment: '500 000 грн' });
+    await postDigest(channel, [payable]);
+    const payload = JSON.parse(JSON.stringify(sentMessages[0].payload.components));
+    const titleText = payload[1].components[0].content;
+    assert.equal(titleText, '**AI Hackathon** · $');
+  });
+
+  it('does not append " · $" when there is no concrete prize figure, or for a job', async () => {
+    const { channel, sentMessages } = makeFakeChannel();
+    const noAmount = opp('AI Fellowship', { payment: 'funded' });
+    await postDigest(channel, [noAmount, { kind: 'job', title: 'AI Engineer', tags: [], payment: '$3000' }]);
+    const payload = JSON.stringify(sentMessages.map((m) => m.payload.components));
+    assert.ok(!payload.includes('· $'));
+  });
+
   it('never shows the raw scraped description, even with no summary or hook', async () => {
     const { channel, sentMessages } = makeFakeChannel();
     const description = 'Generic promotional filler about the venue and its thirteenth edition.';

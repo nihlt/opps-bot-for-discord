@@ -194,8 +194,13 @@ export function parseDate(rawDate, { scrapedAt } = {}) {
 }
 
 const freeIndicatorPattern = /безкоштов|безоплат|\bfree\b/i;
-const currencyAmountPattern = /(?:[$€£¥₴]\s?\d[\d,.]*|\d[\d,.]*\s?(?:usd|eur|gbp|uah|грн))/i;
+// Exported so tests can exercise it directly; used below by both
+// hasAttendanceCost() and hasMoneyPrize() -- one "is there an actual
+// figure here" test, not two that could quietly disagree.
+export const currencyAmountPattern = /(?:[$€£¥₴]\s?\d[\d,.]*|\d[\d,.]*\s?(?:usd|eur|gbp|uah|грн))/i;
 const fellowshipPattern = /fellowship|стипенді\p{L}*|стипенд\p{L}*|grant|грант\p{L}*/iu;
+const hackathonSources = new Set(['dou-hackathon', 'dou-competition', 'kaggle']);
+const hackathonTagPattern = /хакатон|змагання|competition|hackathon/i;
 
 /**
  * True when the opportunity's own title/tags read as a fellowship/stipend
@@ -209,6 +214,41 @@ export function isFellowship(opportunity) {
   return fellowshipPattern.test(text);
 }
 
+/**
+ * True when the opportunity is a hackathon/competition -- either scraped
+ * from a source dedicated to those (dou-hackathon, dou-competition,
+ * kaggle) or self-described as one in its own title/tags. Lives here
+ * (not in lib/scoring.js, which imports it) so applyEventPaymentPolicy
+ * below can use it too without a circular import -- one definition, used
+ * by the score bump, digest.js's category grouping, and the payment
+ * policy, so none of the three can quietly disagree about what counts as
+ * a hackathon.
+ */
+export function isHackathon(opportunity) {
+  const titleAndTags = [opportunity.title || '', (opportunity.tags || []).join(' ')].join(' ');
+  return hackathonSources.has(opportunity.sourceId) || hackathonTagPattern.test(titleAndTags);
+}
+
+/**
+ * True when this is a hackathon/competition or fellowship AND its
+ * payment/description text states an actual money figure -- not just any
+ * fellowship/hackathon, and not a job's salary (winning/receiving prize
+ * money is a different thing than being paid a wage). Jobs, generic
+ * events, and a fellowship/hackathon that never states a concrete amount
+ * (e.g. just "generous stipend") all return false -- this is deliberately
+ * conservative, since the whole point is a reliable "$" marker, not an
+ * optimistic guess. Drives the "· $" suffix on digest titles (see
+ * discord/digest.js) and the "Payable" column in the Notion Feed (see
+ * lib/notion-feed.js) -- a stored fact, not just a digest-time decoration,
+ * per explicit user request.
+ */
+export function hasMoneyPrize(opportunity) {
+  if (opportunity.kind === 'job') return false;
+  if (!isFellowship(opportunity) && !isHackathon(opportunity)) return false;
+  const text = [opportunity.payment, opportunity.description].filter(Boolean).join(' ');
+  return currencyAmountPattern.test(text);
+}
+
 function hasAttendanceCost(opportunity) {
   const payment = opportunity.payment || '';
   return currencyAmountPattern.test(payment) && !freeIndicatorPattern.test(payment);
@@ -216,16 +256,22 @@ function hasAttendanceCost(opportunity) {
 
 /**
  * House convention: paid courses/events get dropped from the feed
- * entirely, and a payment amount is only ever shown for fellowships
- * (money paid TO the participant) — never a price to attend. Kaggle's
- * `payment` is prize money, not a cost, so it's exempt; job listings
- * keep their own salary semantics untouched (kind !== 'event').
+ * entirely, and a payment amount is only ever shown for fellowships and
+ * hackathons/competitions (money paid/won BY the participant) — never a
+ * price to attend. Kaggle's `payment` is prize money, not a cost, so it's
+ * exempt via sourceId; hackathons from other sources (e.g. dou.ua's
+ * scraped "when and where" block, which often *does* contain the real
+ * prize figure) get the same exemption via isHackathon() now, not just
+ * fellowships — a hackathon's payment field is exactly as legitimate a
+ * "money paid to you" signal as a fellowship's, so it shouldn't be wiped
+ * before hasMoneyPrize() above ever sees it. Job listings keep their own
+ * salary semantics untouched (kind !== 'event').
  * Returns null to signal "drop this opportunity", otherwise the
- * opportunity (with `payment` cleared unless it's a fellowship).
+ * opportunity (with `payment` cleared unless it's a fellowship/hackathon).
  */
 export function applyEventPaymentPolicy(opportunity) {
   if (opportunity.kind !== 'event' || opportunity.sourceId === 'kaggle') return opportunity;
-  if (isFellowship(opportunity)) return opportunity;
+  if (isFellowship(opportunity) || isHackathon(opportunity)) return opportunity;
   if (hasAttendanceCost(opportunity)) return null;
   if (opportunity.payment === null) return opportunity;
   return { ...opportunity, payment: null };

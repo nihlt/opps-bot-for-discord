@@ -1,24 +1,9 @@
-import { isFellowship } from './normalize.js';
+import { isFellowship, isHackathon } from './normalize.js';
 
 const lvivPattern = /львів|lviv/i;
 const onlinePattern = /online|онлайн|remote|віддалено/i;
 const aiFitPattern = /\bAI\b|\bML\b|\bNLP\b|machine learning|artificial intelligence|штучн\p{L}*\s+інтелект/iu;
-const hackathonSources = new Set(['dou-hackathon', 'dou-competition', 'kaggle']);
-const hackathonTagPattern = /хакатон|змагання|competition|hackathon/i;
 const internshipTagPattern = /intern/i;
-
-/**
- * True when the opportunity is a hackathon/competition -- either scraped
- * from a source dedicated to those (dou-hackathon, dou-competition,
- * kaggle) or self-described as one in its own title/tags. Exported
- * separately from scoreOpportunity() so digest.js's category grouping
- * (see discord/digest.js) always agrees with the score bump below --
- * one definition, not two that could drift apart.
- */
-export function isHackathon(opportunity) {
-  const titleAndTags = [opportunity.title || '', (opportunity.tags || []).join(' ')].join(' ');
-  return hackathonSources.has(opportunity.sourceId) || hackathonTagPattern.test(titleAndTags);
-}
 const noExperiencePattern = /no[_\s]?exp/i;
 
 /**

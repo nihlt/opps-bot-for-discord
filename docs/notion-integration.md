@@ -33,12 +33,25 @@ assuming "just merge them" is obviously right.
   grow dynamically as new tags appear), `Location`, `Payment`,
   `Description` (the raw scraped text), `Company`, `Source` (which scraper
   it came from), `Deadline`, `Score` (number, our own heuristic — see
-  [scoring-and-highlighting.md](./scoring-and-highlighting.md)), `External
-  Id` (our sha256 `id`, for cross-referencing/dedup), `Hook` (rich text,
-  reserved for the *external* scheduled Claude agent — not populated by
-  anything today), `Summary` (rich text, populated by **this pipeline's own
-  Gemini call**, `src/lib/summarize.js` — also not wired into the live
-  pipeline yet, see [architecture.md](./architecture.md)).
+  [scoring-and-highlighting.md](./scoring-and-highlighting.md)), `Payable`
+  (checkbox, `hasMoneyPrize()` — true only for a hackathon/competition/
+  fellowship with a stated concrete money figure, see
+  [scoring-and-highlighting.md](./scoring-and-highlighting.md#the-payable-checkbox--the--marker)),
+  `External Id` (our sha256 `id`, for cross-referencing/dedup), `Hook`
+  (rich text, reserved for the *external* scheduled Claude agent — not
+  populated by anything today), `Summary` (rich text, populated by **this
+  pipeline's own Gemini call**, `src/lib/summarize.js`).
+- **`Payable` must exist in the live database's schema before
+  `writeToFeed()` will succeed** — Notion's API rejects a page-create call
+  that references a property outside the actual schema. It was added via
+  the Notion MCP connector for every other property added this way
+  (Score, Hook, Summary) — but that connector's token had expired when
+  `Payable` was introduced, so **this one needs to be added by hand**:
+  open "Opportunities Feed" in Notion → add property → name it exactly
+  `Payable` → type Checkbox. Until that's done, every new item's Feed
+  write fails (caught per-item, so it doesn't block the rest of the
+  pipeline, but it does trigger an admin DM every run via
+  [discord-integration.md](./discord-integration.md#admin-dm-alerts)).
 - **Populated by**: `src/lib/notion-feed.js`'s `writeToFeed()`, called from
   `runPipeline()` for every genuinely new, non-`notion`-sourced
   opportunity. One-way write only — nothing reads this database back into

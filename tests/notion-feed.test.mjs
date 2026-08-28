@@ -32,6 +32,19 @@ describe('toFeedProperties', () => {
     assert.equal(props.Company, undefined);
     assert.equal(props.Summary, undefined);
     assert.equal(typeof props.Score.number, 'number');
+    assert.deepEqual(props.Payable, { checkbox: false });
+  });
+
+  it('sets Payable to true for a hackathon/fellowship with a real prize figure', () => {
+    const props = toFeedProperties({
+      id: 'x',
+      sourceId: 'dou-hackathon',
+      kind: 'event',
+      title: 'AI Hackathon',
+      tags: [],
+      payment: '500 000 грн',
+    });
+    assert.deepEqual(props.Payable, { checkbox: true });
   });
 
   it('includes Summary when present, omits it when absent', () => {

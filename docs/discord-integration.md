@@ -133,7 +133,7 @@ One message per non-empty category:
 ```
 [TextDisplay] **{CATEGORY NAME, uppercased}**
 [Container, accent = percentileColor(score, scoringPopulation) or none]
-  **{title}**
+  **{title}**{ · $ if hasMoneyPrize(opportunity)}
   [Section, or a plain text block if opportunity.link is missing]
     {summary or hook, truncated to 400 chars, or omitted entirely}
 
@@ -141,6 +141,12 @@ One message per non-empty category:
     [Button: "Відкрити" -> opportunity.link]
 ... (up to 3 items per category, small dividers between them)
 ```
+
+The `· $` suffix marks a hackathon/competition/fellowship that states an
+actual money figure — see
+[scoring-and-highlighting.md](./scoring-and-highlighting.md#the-payable-checkbox--the--marker)
+for exactly what counts (deliberately conservative: a vague "generous
+stipend" doesn't qualify, a job's salary never does).
 
 The raw score and percentile ("score 60 · better than 0.73") used to be
 printed on this meta line too. Removed per explicit user request after it

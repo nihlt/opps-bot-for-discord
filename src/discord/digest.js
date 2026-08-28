@@ -9,8 +9,8 @@ import {
   ButtonBuilder,
   ButtonStyle,
 } from 'discord.js';
-import { scoreOpportunity, isHackathon } from '../lib/scoring.js';
-import { isFellowship } from '../lib/normalize.js';
+import { scoreOpportunity } from '../lib/scoring.js';
+import { isFellowship, isHackathon, hasMoneyPrize } from '../lib/normalize.js';
 import { percentileColor } from './score-color.js';
 
 const MAIN_MESSAGE_LIMIT = 3;
@@ -88,9 +88,12 @@ function itemContainer(opportunity, allScores) {
   // rather than a run-on paragraph.
   const body = [description, metaLine].filter(Boolean).join('\n\n') || '—';
 
-  const container = new ContainerBuilder().addTextDisplayComponents(
-    new TextDisplayBuilder().setContent(`**${opportunity.title}**`),
-  );
+  // "· $" at the end of the title marks a hackathon/competition/fellowship
+  // that states an actual money figure (see hasMoneyPrize() -- not a
+  // job's salary, and not just any fellowship/hackathon, only ones with a
+  // real number attached) -- a quick "this one pays" scan cue.
+  const titleLine = hasMoneyPrize(opportunity) ? `**${opportunity.title}** · $` : `**${opportunity.title}**`;
+  const container = new ContainerBuilder().addTextDisplayComponents(new TextDisplayBuilder().setContent(titleLine));
 
   // A Discord Section requires an accessory (button or thumbnail) -- if
   // there's no link to send someone to, fall back to a plain text block

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
-import { makeId, parseDate, normalizeOpportunity, isFellowship, applyEventPaymentPolicy } from '../src/lib/normalize.js';
+import { makeId, parseDate, normalizeOpportunity, isFellowship, isHackathon, hasMoneyPrize, applyEventPaymentPolicy } from '../src/lib/normalize.js';
 
 describe('makeId', () => {
   it('is stable for the same input', () => {
@@ -120,6 +120,49 @@ describe('isFellowship', () => {
   });
 });
 
+describe('isHackathon', () => {
+  it('matches by dedicated sourceId', () => {
+    assert.equal(isHackathon({ title: 'Something', tags: [], sourceId: 'dou-hackathon' }), true);
+    assert.equal(isHackathon({ title: 'Something', tags: [], sourceId: 'kaggle' }), true);
+  });
+
+  it('matches by title/tag keyword, including the literal word "hackathon"', () => {
+    assert.equal(isHackathon({ title: 'Global AI Hackathon', tags: [] }), true);
+    assert.equal(isHackathon({ title: 'Спринт', tags: ['змагання'] }), true);
+  });
+
+  it('does not match an unrelated event', () => {
+    assert.equal(isHackathon({ title: 'AI Meetup', tags: [] }), false);
+  });
+});
+
+describe('hasMoneyPrize', () => {
+  it('is true for a hackathon whose payment states a concrete amount', () => {
+    const opp = { kind: 'event', sourceId: 'dou-hackathon', title: 'AI Hackathon', tags: [], payment: '500 000 грн', description: '' };
+    assert.equal(hasMoneyPrize(opp), true);
+  });
+
+  it('is true for a fellowship whose description states a concrete amount', () => {
+    const opp = { kind: 'event', sourceId: 'notion', title: 'AI Fellowship', tags: [], payment: null, description: '$1000 per student.' };
+    assert.equal(hasMoneyPrize(opp), true);
+  });
+
+  it('is false for a fellowship/hackathon with no concrete figure anywhere', () => {
+    const opp = { kind: 'event', sourceId: 'notion', title: 'AI Fellowship', tags: [], payment: 'funded', description: 'A generous stipend.' };
+    assert.equal(hasMoneyPrize(opp), false);
+  });
+
+  it('is false for a generic event, even with a currency figure in its description', () => {
+    const opp = { kind: 'event', sourceId: 'kse-news', title: 'AI Conference', tags: [], payment: null, description: 'Tickets cost $50.' };
+    assert.equal(hasMoneyPrize(opp), false);
+  });
+
+  it('is false for a job, even one with a fellowship/hackathon-sounding title and a salary figure', () => {
+    const opp = { kind: 'job', sourceId: 'djinni', title: 'AI Fellowship Coordinator', tags: [], payment: '$3000/month', description: '' };
+    assert.equal(hasMoneyPrize(opp), false);
+  });
+});
+
 describe('applyEventPaymentPolicy', () => {
   it('drops a paid course (event, cost to attend, not a fellowship)', () => {
     const opp = { kind: 'event', sourceId: 'dou-ai', title: 'AI Course', tags: [], description: '', payment: '$500' };
@@ -145,6 +188,13 @@ describe('applyEventPaymentPolicy', () => {
     const result = applyEventPaymentPolicy(opp);
     assert.notEqual(result, null);
     assert.equal(result.payment, '$50,000');
+  });
+
+  it('keeps a hackathon (any source) and preserves its prize amount, same as a fellowship', () => {
+    const opp = { kind: 'event', sourceId: 'dou-hackathon', title: 'AI Hackathon', tags: [], description: '', payment: '500 000 грн' };
+    const result = applyEventPaymentPolicy(opp);
+    assert.notEqual(result, null);
+    assert.equal(result.payment, '500 000 грн');
   });
 
   it('leaves job listings untouched', () => {
