@@ -15,15 +15,13 @@ flowchart TD
     V -->|fails| V2[".summary = null for the whole batch"]
     V --> D["appendNewEvents<br/>persist WITH summary + stamped firstSeenAt"]
     D --> N["writeToFeed<br/>Notion Opportunities Feed, incl. Date Found"]
-    D --> C["postDigest<br/>one message per category, top 3 + thread overflow each"]
+    D --> C["postDigest<br/>global top 3 + one thread grouped by category"]
     S -->|a source fails| I[issues.push]
     V2 --> I
     N -->|fails| I
     C -->|fails| I
-    I --> A{issues non-empty?}
-    A -->|yes| M["notifyAdmins: one consolidated DM"]
-    A -->|no| E["exit 0"]
-    M --> E
+    I --> M["notifyAdmins: issues (if any) + LLM cost report<br/>sent EVERY run, not only when issues exist"]
+    M --> E["exit 0"]
 ```
 
 This is what actually runs — no separate always-on process, no in-repo
@@ -73,25 +71,29 @@ config/sources.json (9 registered sources, 1 disabled)
         ├──────────────────────────────┐
         ▼                              ▼
   writeToFeed() (src/lib/notion-feed.js)   postDigest() (src/discord/digest.js)
-  — writes NEW, non-notion-sourced          — groups into 5 categories
-    opportunities to "Opportunities Feed"     (Hackathons/Events/Fellowship
-    in Notion, each with a heuristic          Programs/Jobs/Online Events),
-    Score (src/lib/scoring.js), Payable       one channel message PER
-    checkbox (hasMoneyPrize()), Date           category (top 3 by score),
-    Found (firstSeenAt), and Summary           each with its own overflow
-    when one came back from Vertex AI          thread. Ranked against the
-    (omitted, not left blank, otherwise).      FULL catalogue (loadEvents()
-                                                re-read after append), not
-                                                just today's batch. Which
-                                                items post — see below.
+  — writes NEW, non-notion-sourced          — ONE titled channel message
+    opportunities to "Opportunities Feed"     with the GLOBAL top 3 by
+    in Notion, each with a heuristic          score (not top 3 per
+    Score (src/lib/scoring.js), Payable       category); if there's more,
+    checkbox (hasMoneyPrize()), Date          ONE thread off it grouped by
+    Found (firstSeenAt), and Summary          category (Hackathons/Events/
+    when one came back from Vertex AI         Fellowship Programs/Jobs/
+    (omitted, not left blank, otherwise).     Online Events). Ranked
+                                               against the FULL catalogue
+                                               (loadEvents() re-read after
+                                               append), not just today's
+                                               batch. Which items post —
+                                               see below.
         │                                       │
         └───────────────────┬───────────────────┘
                              ▼
-                any problem from either step above (or from scraping)
-                is collected into `issues` and DMed ONCE per run to every
-                ADMIN_DISCORD_USER_IDS admin (src/discord/alerts.js) --
-                "alert on every failure, no exceptions," batched into one
-                message rather than one DM per problem.
+                any problem from either step above (or from scraping) is
+                collected into `issues`. notifyAdmins() (src/discord/
+                alerts.js) is called EVERY run, not only when `issues` is
+                non-empty -- issues (if any) plus an LLM token/cost report
+                (this run / 7d / 30d / all-time, see "LLM usage & cost
+                tracking" below) go to every ADMIN_DISCORD_USER_IDS admin
+                in one DM, batched rather than one DM per problem.
 ```
 
 ### Which items actually get posted: `DIGEST_LOOKBACK_DAYS`
@@ -113,6 +115,40 @@ start`, `scraped=147 new=3 posted=yes ... (lookback=3d, toPost=3)`).
 already posted earlier today if the pipeline runs more than once inside
 the window — fine for a one-off retrospective look, not something the
 scheduled GitHub Actions run should ever set.
+
+### LLM usage & cost tracking
+
+`src/lib/summarize.js`'s `summarizeOpportunities()` reads `usageMetadata`
+(`promptTokenCount`/`candidatesTokenCount`/`totalTokenCount`) off every
+successful Vertex AI response and reports it via an `onUsage(usage)`
+callback — confirmed live these are real, non-trivial numbers (e.g. one
+single-item test call: 436 prompt tokens, 57 candidate tokens, but 1299
+*total* tokens — the gap suggests this model bills internal
+reasoning/thinking tokens too, not just prompt+candidates; take
+`totalTokenCount` as the authoritative figure, not the sum of the other two).
+
+`src/lib/llm-usage.js` persists each call as one line in
+`data/llm-usage.jsonl` (`recordUsage()` — plain append, no atomic-rewrite
+needed since call order doesn't matter for aggregation) and aggregates
+into four buckets (`summarizeUsage()`): this run, last 7 days, last 30
+days, all-time. Like `data/events.jsonl`, this file is `.gitignore`d and
+persisted across GitHub Actions runs via the same `actions/cache` step
+(see [the hosting section](#hosting-github-actions)) — without that, the
+weekly/monthly totals would silently reset to zero every run.
+
+**Dollar cost is only computed if you configure it** —
+`GEMINI_INPUT_PRICE_PER_1M_TOKENS` / `GEMINI_OUTPUT_PRICE_PER_1M_TOKENS`
+(both required; either missing means every bucket shows "ціна не
+налаштована" instead of a number). This is deliberate: there's no reliable
+built-in knowledge of what a specific Gemini model costs per token (rates
+vary by model and change over time), so `formatUsageReport()` refuses to
+guess a number rather than risk reporting a fabricated cost as if it were
+real. Look up the current Vertex AI generative-AI pricing for whatever
+`GEMINI_MODEL` is set to, per 1 million tokens, before setting these.
+
+This whole report — token counts, and cost if configured — is what gets
+appended to the admin DM every run (see the alerting paragraph above and
+[discord-integration.md](./discord-integration.md#admin-dm-alerts-now-sent-every-run-not-just-on-failure)).
 
 `src/index.js` is the entrypoint: log into Discord, run the pipeline
 **once**, destroy the client, exit — `.github/workflows/daily-digest.yml`
@@ -179,8 +215,8 @@ than left around unused.
 | Heuristic score | `lib/scoring.js` (used by `writeToFeed` and `digest.js`) |
 | Vertex AI (Gemini) summarization | `lib/summarize.js` |
 | Write to Notion Feed (incl. Summary) | `lib/notion-feed.js` |
-| Components V2 digest (top-3 + thread, percentile accent colors) | `discord/digest.js`, `discord/score-color.js` |
-| Admin DM alerts on every issue | `discord/alerts.js` |
+| Components V2 digest (global top-3 + category-grouped thread, percentile accent colors) | `discord/digest.js`, `discord/score-color.js` |
+| Admin DM every run (issues if any + LLM cost report) | `discord/alerts.js`, `lib/llm-usage.js` |
 | Read Score/Hook/Summary back from Notion | *(doesn't exist yet — see [PLAN.md](../PLAN.md))* |
 | Discord forum-channel / x.com sources | *(doesn't exist yet — backlog, see [PLAN.md](../PLAN.md))* |
 
@@ -205,7 +241,8 @@ and [resilience.md](./resilience.md) for the remaining honest caveats
 - `src/index.js` — entrypoint: login, run once, destroy client, exit;
   best-effort alert on fatal startup errors.
 - `src/pipeline.js` — orchestrates one full run: scrape → filter → dedupe
-  → summarize → Notion write → Discord digest post → alert on any issues.
+  → summarize → Notion write → Discord digest post → admin DM every run
+  (issues if any + LLM cost report).
 - `src/sources/index.js` — reads `config/sources.json`, dynamic-imports the
   right module per source, dispatches `fetchOpportunities(sourceConfig)`.
 - `src/sources/*.js` — one per source; see [sources.md](./sources.md).
@@ -219,11 +256,14 @@ and [resilience.md](./resilience.md) for the remaining honest caveats
 - `src/lib/notion-feed.js` — writes to the "Opportunities Feed" Notion
   database. See [notion-integration.md](./notion-integration.md).
 - `src/lib/summarize.js` — Vertex AI (Gemini) one-sentence summarization,
-  batched, JSON-mode, OAuth2/ADC auth.
+  batched, JSON-mode, OAuth2/ADC auth; reports token usage via `onUsage()`.
+- `src/lib/llm-usage.js` — persists/aggregates Vertex AI token usage
+  (`data/llm-usage.jsonl`) into this-run/7d/30d/all-time buckets, and
+  optionally estimates $ cost if pricing env vars are set.
 - `src/discord/client.js` — logs into Discord, resolves on ready.
-- `src/discord/digest.js` — the categorized (5 buckets), top-3-per-
-  category-plus-thread Components V2 digest, the sole production posting
-  path. See [discord-integration.md](./discord-integration.md).
+- `src/discord/digest.js` — global top-3-plus-category-grouped-thread
+  Components V2 digest, the sole production posting path. See
+  [discord-integration.md](./discord-integration.md).
 - `src/discord/score-color.js` — percentile-to-accent-color mapping used
   by `digest.js`.
 - `src/discord/alerts.js` — best-effort admin DMs, never throws.

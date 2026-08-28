@@ -85,6 +85,11 @@ export async function summarizeOpportunities(
     model = process.env.GEMINI_MODEL,
     fetchImpl = fetch,
     getAccessToken = defaultGetAccessToken,
+    // Called once per successful call with { promptTokens, candidatesTokens,
+    // totalTokens, model } from the response's usageMetadata -- lets a
+    // caller (see pipeline.js/lib/llm-usage.js) track spend without this
+    // module needing to know anything about persistence or cost.
+    onUsage = () => {},
   } = {},
 ) {
   if (opportunities.length === 0) return new Map();
@@ -107,6 +112,16 @@ export async function summarizeOpportunities(
   }
 
   const data = await response.json();
+
+  if (data.usageMetadata) {
+    await onUsage({
+      model,
+      promptTokens: data.usageMetadata.promptTokenCount || 0,
+      candidatesTokens: data.usageMetadata.candidatesTokenCount || 0,
+      totalTokens: data.usageMetadata.totalTokenCount || 0,
+    });
+  }
+
   const candidateText = data.candidates?.[0]?.content?.parts?.[0]?.text;
   if (!candidateText) throw new Error('Vertex AI response had no text content');
 

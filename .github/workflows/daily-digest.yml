@@ -27,14 +27,19 @@ jobs:
         with:
           node-version: 20
 
-      # data/events.jsonl is .gitignore'd (Stage 0 decision -- runtime data
-      # stays out of version control), so state persists across runs via
-      # actions/cache instead of a git commit. restore-keys prefix-matches
-      # the most recent prior run's save when there's no exact key hit.
-      - name: Restore events store
+      # data/events.jsonl and data/llm-usage.jsonl are both .gitignore'd
+      # (Stage 0 decision -- runtime data stays out of version control),
+      # so state persists across runs via actions/cache instead of a git
+      # commit. restore-keys prefix-matches the most recent prior run's
+      # save when there's no exact key hit. llm-usage.jsonl has to persist
+      # the same way, or the weekly/monthly cost totals in the admin DM
+      # would reset to zero every run.
+      - name: Restore events store and LLM usage log
         uses: actions/cache/restore@v4
         with:
-          path: data/events.jsonl
+          path: |
+            data/events.jsonl
+            data/llm-usage.jsonl
           key: events-jsonl-${{ github.run_id }}
           restore-keys: |
             events-jsonl-
@@ -68,6 +73,11 @@ jobs:
           GOOGLE_CLOUD_LOCATION: global
           GOOGLE_APPLICATION_CREDENTIALS: ${{ runner.temp }}/gcp-key.json
           SCRAPE_CONCURRENCY: 3
+          # Optional -- omit both to leave $ cost unestimated (token counts
+          # still get reported). See docs/architecture.md for where to find
+          # current per-model Vertex AI pricing before setting these.
+          GEMINI_INPUT_PRICE_PER_1M_TOKENS: ${{ secrets.GEMINI_INPUT_PRICE_PER_1M_TOKENS }}
+          GEMINI_OUTPUT_PRICE_PER_1M_TOKENS: ${{ secrets.GEMINI_OUTPUT_PRICE_PER_1M_TOKENS }}
 
       # Always-run, even on a failed pipeline step: whatever got
       # scraped/deduped before a later-stage crash still shouldn't be lost.
@@ -75,9 +85,11 @@ jobs:
       # cause a rare duplicate post/Notion row next run -- chosen over the
       # alternative (saving right after dedupe, before posting), which
       # could silently lose an item forever if posting then failed.
-      - name: Save events store
+      - name: Save events store and LLM usage log
         if: always()
         uses: actions/cache/save@v4
         with:
-          path: data/events.jsonl
+          path: |
+            data/events.jsonl
+            data/llm-usage.jsonl
           key: events-jsonl-${{ github.run_id }}

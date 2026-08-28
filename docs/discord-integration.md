@@ -16,34 +16,36 @@ opportunities. Built, unit-tested, and demonstrated live via one-off
 scripts many times during development before being wired into
 `runPipeline()` for real.
 
-What it does: groups opportunities into five categories —
-`CATEGORY_ORDER = ['Hackathons', 'Events', 'Fellowship Programs', 'Jobs',
-'Online Events']` — via `categorizeOpportunity()`. **Each non-empty
-category gets its own channel message**: a bold header line, then its top
-3 items by `scoreOpportunity()` (Components V2 `Container`s with a
-"Відкрити" link button per item), and — if it has more than 3 — its own
-**thread** off that category's message for the rest, chunked
-5-per-follow-up. Accent color per item comes from `percentileColor()`
-against `scoringPopulation` (see
+What it does: sorts every opportunity by `scoreOpportunity()`, posts the
+**global top 3** (regardless of category) in one titled channel message —
+`**Нові можливості за {date}**`, then each of those 3 as a Components V2
+`Container` with a "Відкрити" link button — and, if there's more, opens
+**one thread** off that message for everything else, grouped by category
+(`categorizeOpportunity()`, `CATEGORY_ORDER = ['Hackathons', 'Events',
+'Fellowship Programs', 'Jobs', 'Online Events']`), each category its own
+header + chunked follow-up message(s) in the thread. Accent color per item
+comes from `percentileColor()` against `scoringPopulation` (see
 [scoring-and-highlighting.md](./scoring-and-highlighting.md) for the
 "almost always pass the full catalogue, not just today's batch" trap).
 Description text is `opportunity.summary || opportunity.hook` — **no
 fallback to the raw scraped description**, by explicit design (see below).
 
-### Why one message per category, not one combined message
+### Global top 3, category grouping only for the thread
 
-The first version of this tried a single message with all five
-categories, a bold header per category, and a bigger divider between
-groups. It hit a hard Discord limit almost immediately:
-`COMPONENT_MAX_TOTAL_COMPONENTS_EXCEEDED` — a single message's component
-tree (containers, sections, buttons, text displays, counted recursively,
-not just top-level) is capped at **40 total**. Two fully-populated
-categories (3 items each) already sit at ~37; a third pushes past it —
-meaning a combined message would work on a quiet day and randomly fail on
-a busy one. Splitting into one message per category sidesteps this
-entirely: each category's own message is the same small shape this format
-always used (well under the cap), regardless of how many categories have
-content that day.
+An earlier version tried the opposite split — top 3 *per category*, each
+category its own channel message — after an even earlier attempt to
+combine all five categories into one message hit a hard Discord limit:
+`COMPONENT_MAX_TOTAL_COMPONENTS_EXCEEDED` (a single message's component
+tree, counted recursively, is capped at **40 total** — two fully-populated
+categories already sit at ~37). The per-category-messages design avoided
+that cap but produced up to 5 separate channel messages per run with no
+single obvious "here's today's headline" entry point. Settled on: one
+title message with the GLOBAL top 3 (never at risk of the 40-cap — 3 items
+is 3 items regardless of how many categories exist) for the "here's what
+matters most today" read, and category grouping demoted to organizing the
+*thread* (where it was never going to hit the per-message cap either,
+since each category's thread message is its own separate message, chunked
+at 5 items).
 
 ### Category assignment (`categorizeOpportunity()`, priority order)
 
@@ -131,29 +133,33 @@ of what happens when each dependency is down.
 
 ## Formatting reference (current digest.js output shape)
 
-One message per non-empty category:
+Main channel message (always exactly one per run, if there's anything to post):
 
 ```
-[TextDisplay] {D MMMM YYYY, e.g. "28 серпня 2026" -- plain text, not bold}
-[TextDisplay] **{CATEGORY NAME, uppercased}**
+[TextDisplay] **Нові можливості за {D MMMM, e.g. "28 серпня" -- no year}**
 [Container, accent = percentileColor(score, scoringPopulation) or none]
   **{title}**{ · $ if hasMoneyPrize(opportunity)}
   [Section, or a plain text block if opportunity.link is missing]
     {summary or hook, truncated to 400 chars, or omitted entirely}
 
-    {location} · from {domain}
+    {location} · from {domain} · дедлайн: {DD.MM}
     [Button: "Відкрити" -> opportunity.link]
-... (up to 3 items per category, small dividers between them)
+... (global top 3 by score, small dividers between them -- not top 3 per category)
 ```
 
-The date line is plain text (not bold, unlike the category header) — a
-masthead-style dateline, repeated on every category's own message since
-each is a standalone message a reader might see on its own, out of the
-original posting order. Defaults to `new Date()`; `postDigest(channel,
+The title line's date defaults to `new Date()`; `postDigest(channel,
 opportunities, { date })` accepts an override for tests or a deliberate
 backfill/retrospective run (see
 [architecture.md](./architecture.md#which-items-actually-get-posted-digest_lookback_days)
 for `DIGEST_LOOKBACK_DAYS`, the other lever for a retrospective digest).
+No year in the title by design — a daily digest never needs one to
+disambiguate.
+
+`дедлайн: {DD.MM}` is `opportunity.dateNormalized` in short numeric form
+(no year, same reasoning), omitted entirely when there's no date. This is
+literally the event's own date/deadline field, not a separate "when did we
+find this" fact (see [architecture.md](./architecture.md#opportunity-shape)
+for `firstSeenAt`, which is a different field entirely and isn't shown here).
 
 The `· $` suffix marks a hackathon/competition/fellowship that states an
 actual money figure — see
@@ -168,8 +174,7 @@ surfaced a real scoring problem live: several djinni jobs showed the
 [scoring-and-highlighting.md](./scoring-and-highlighting.md#job-scores-used-to-collide-constantly--fixed-by-adding-real-signal-not-by-faking-one)) —
 seeing identical numbers repeated read as noise, not useful signal. The
 underlying score still drives everything else (sort order, the accent
-color band, which 3 items make a category's main message) — only the
-visible text is gone.
+color band, which 3 items make the top 3) — only the visible text is gone.
 
 `{domain}` is `opportunity.link`'s hostname (`www.` stripped), omitted if
 the link is missing or unparseable. There's a blank line between the
@@ -181,14 +186,15 @@ skim-reading) and always carry a currency mark, since "who opens an essay
 contest link if they don't know 1 student + 1 teacher win $1000" was the
 motivating case that got this added.
 
-Top 3 by score, per category, go in that category's own channel message;
-each category's own remainder (if any) goes into its own thread off its
-own message, named `Ще N можливостей/можливість` (correct Ukrainian
-pluralization, N = that category's overflow count only), chunked 5 items
-per follow-up message in the thread. A run with, say, 3 non-empty
-categories produces 3 separate channel messages, not one.
+**Thread** (only created if there's more than the global top 3): named
+`Ще N можливостей/можливість` (correct Ukrainian pluralization, N = total
+overflow count across every category), off the main message. Inside, each
+non-empty category (in `CATEGORY_ORDER`) gets its own bold uppercase
+header (`**HACKATHONS**`, etc.) followed by that category's remaining
+items, chunked 5-per-follow-up message so a large category doesn't produce
+one giant thread message.
 
-## Admin DM alerts
+## Admin DM alerts (now sent every run, not just on failure)
 
 `src/discord/alerts.js`'s `notifyAdmins(client, message)` DMs every user id
 in `ADMIN_DISCORD_USER_IDS` (comma-separated). Policy, per explicit user
@@ -196,10 +202,18 @@ decision, is **alert on every failure, no exceptions** — but batched into
 one DM per pipeline run (listing every issue found) rather than one DM per
 problem. `runPipeline()` collects issues from every stage (source
 failures, Vertex AI summarization failures, Notion write failures, the
-digest post itself failing) into an array and sends a single alert at the
-end if it's non-empty; `index.js` has its own fallback alert for a fatal
-error that somehow escapes `runPipeline()`'s own handling, best-effort
-only (it needs a logged-in client to send through).
+digest post itself failing) into an array.
+
+**`notifyAdmins()` is now called unconditionally at the end of every
+run**, not only when `issues` is non-empty — per explicit request to see
+LLM spend every time, not just when something breaks (see
+[architecture.md](./architecture.md#llm-usage-cost-tracking) for the
+token/cost tracking itself). The message always ends with a "Вартість
+LLM" section (this run / last 7 days / last 30 days / all-time); issues,
+if any, are listed *above* that section so they're not buried under the
+routine cost line. `index.js` has its own fallback alert for a fatal
+error that somehow escapes `runPipeline()`'s own handling entirely,
+best-effort only (it needs a logged-in client to send through).
 
 A source returning `[]` (e.g. `work-ua`'s permanent Cloudflare block, see
 [sources.md](./sources.md)) is **not** a failure for alerting purposes —

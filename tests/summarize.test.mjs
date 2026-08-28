@@ -107,6 +107,32 @@ describe('summarizeOpportunities', () => {
     assert.ok(!seenUrl.includes('my-token'));
   });
 
+  it('calls onUsage with token counts from a successful response\'s usageMetadata', async () => {
+    let usage;
+    const fetchImpl = async () => ({
+      ok: true,
+      json: async () => ({
+        candidates: [{ content: { parts: [{ text: '[]' }] } }],
+        usageMetadata: { promptTokenCount: 120, candidatesTokenCount: 30, totalTokenCount: 150 },
+      }),
+    });
+    await summarizeOpportunities(items, { ...options, model: 'gemini-x', fetchImpl, onUsage: (u) => { usage = u; } });
+    assert.deepEqual(usage, { model: 'gemini-x', promptTokens: 120, candidatesTokens: 30, totalTokens: 150 });
+  });
+
+  it('does not call onUsage when the response has no usageMetadata', async () => {
+    let called = false;
+    const fetchImpl = fakeFetchOk('[]');
+    await summarizeOpportunities(items, { ...options, fetchImpl, onUsage: () => { called = true; } });
+    assert.equal(called, false);
+  });
+
+  it('does not call onUsage for an empty batch (no call made at all)', async () => {
+    let called = false;
+    await summarizeOpportunities([], { ...options, onUsage: () => { called = true; } });
+    assert.equal(called, false);
+  });
+
   it('uses the bare aiplatform host for the "global" location', async () => {
     let seenUrl;
     const fetchImpl = async (url) => {

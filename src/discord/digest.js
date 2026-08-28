@@ -64,15 +64,14 @@ const ukrainianMonthsGenitive = [
 ];
 
 function formatDigestDate(date) {
-  return `${date.getDate()} ${ukrainianMonthsGenitive[date.getMonth()]} ${date.getFullYear()}`;
+  return `${date.getDate()} ${ukrainianMonthsGenitive[date.getMonth()]}`;
 }
 
-// Plain (not bold), like a masthead dateline -- each category is its own
-// message (see postDigest's doc comment), so without this, a message
-// read on its own (especially later, out of the original posting order)
-// has no visible sense of which day's digest it belongs to.
-function dateHeader(date) {
-  return new TextDisplayBuilder().setContent(formatDigestDate(date));
+// The one title line for the whole run's main message -- "Нові
+// можливості за 28 серпня". No year: a daily digest never needs one to
+// disambiguate, and the shorter form reads better as a title.
+function titleHeader(date) {
+  return new TextDisplayBuilder().setContent(`**Нові можливості за ${formatDigestDate(date)}**`);
 }
 
 function sourceDomain(link) {
@@ -82,6 +81,14 @@ function sourceDomain(link) {
   } catch {
     return null;
   }
+}
+
+// "YYYY-MM-DD" -> "DD.MM" -- short by design, per explicit request; a
+// year is rarely needed to disambiguate an upcoming deadline.
+function formatShortDate(dateNormalized) {
+  if (!dateNormalized) return null;
+  const [, month, day] = dateNormalized.slice(0, 10).split('-');
+  return `${day}.${month}`;
 }
 
 function itemContainer(opportunity, allScores) {
@@ -97,7 +104,12 @@ function itemContainer(opportunity, allScores) {
   // from the source site, not what the reader actually gets, so if
   // summarization hasn't run or failed, showing nothing beats showing that.
   const description = truncate(opportunity.summary || opportunity.hook);
-  const metaLine = [opportunity.location, sourceDomain(opportunity.link) && `from ${sourceDomain(opportunity.link)}`]
+  const deadline = formatShortDate(opportunity.dateNormalized);
+  const metaLine = [
+    opportunity.location,
+    sourceDomain(opportunity.link) && `from ${sourceDomain(opportunity.link)}`,
+    deadline && `дедлайн: ${deadline}`,
+  ]
     .filter(Boolean)
     .join(' · ');
   // Blank line between the description and the meta line, not just a
@@ -162,87 +174,76 @@ function sortByScoreDesc(opportunities) {
 }
 
 /**
- * Groups a batch by CATEGORY_ORDER and, within each category, splits the
- * top N (by score, descending) for the main message from the rest as
- * thread overflow. Categories with zero items in a given bucket are
- * omitted from that bucket entirely (no empty headers). Pure/testable
- * without touching Discord.
+ * Splits a batch into the GLOBAL top N (by score, descending, regardless
+ * of category) for the main message, and everything else grouped by
+ * CATEGORY_ORDER for thread display. Categories with no overflow items
+ * are omitted entirely (no empty headers). Pure/testable without
+ * touching Discord.
  */
-export function splitForDigestByCategory(opportunities, limit = MAIN_MESSAGE_LIMIT) {
-  const main = [];
+export function splitDigestForPosting(opportunities, limit = MAIN_MESSAGE_LIMIT) {
+  const sorted = sortByScoreDesc(opportunities);
+  const main = sorted.slice(0, limit);
+  const rest = sorted.slice(limit);
+
   const overflow = [];
   for (const category of CATEGORY_ORDER) {
-    const sorted = sortByScoreDesc(opportunities.filter((o) => categorizeOpportunity(o) === category));
-    if (sorted.length === 0) continue;
-    if (sorted.slice(0, limit).length > 0) main.push({ category, items: sorted.slice(0, limit) });
-    if (sorted.slice(limit).length > 0) overflow.push({ category, items: sorted.slice(limit) });
+    const items = rest.filter((o) => categorizeOpportunity(o) === category);
+    if (items.length > 0) overflow.push({ category, items });
   }
   return { main, overflow };
 }
 
 /**
- * Posts a batch of opportunities as a digest, grouped into
- * CATEGORY_ORDER's categories (Hackathons, Events, Fellowship Programs,
- * Jobs, Online Events). Each non-empty category gets its OWN channel
- * message (header + up to 3 items by score) and, if it has more than 3,
- * its own thread for the rest, chunked at 5 per follow-up.
+ * Posts a batch of opportunities as one digest: a single channel message
+ * titled "Нові можливості за {date}" with the GLOBAL top 3 by score
+ * (regardless of category) -- then, if there's more, one thread off that
+ * message with everything else, grouped by CATEGORY_ORDER (Hackathons,
+ * Events, Fellowship Programs, Jobs, Online Events), each category its
+ * own chunked follow-up message(s) with its own header.
  *
- * One message per category rather than one combined message for all of
- * them -- Discord caps a single message's component tree (containers,
- * sections, buttons, text displays, all counted recursively) at 40 total.
- * Two fully-populated categories already sit at ~37; a third pushes past
- * it. A single category's own message (well under the cap, the same
- * shape this format always used pre-categorization) never risks that,
- * regardless of how many categories have content on a given day.
+ * Global top 3 in one message (not top-3-per-category) sidesteps
+ * Discord's 40-component-per-message cap entirely -- that cap only bit
+ * when an earlier design tried to fit every category's top 3 into one
+ * combined message (~37 components for just two full categories). A
+ * flat top 3 never gets close to that regardless of how many categories
+ * exist.
  *
- * The accent color and "better than 0.NN" figure are percentiles against
- * `scoringPopulation` (the whole known catalogue, e.g. every stored
- * Opportunity), NOT just the handful of items being posted today --
- * ranking a small daily batch against itself would be close to
- * meaningless (a single mediocre item could look "top 10%" of a batch of
- * 3). Defaults to `opportunities` itself only if no broader population is
- * given (e.g. in tests, or a first run with nothing else on record yet).
- *
- * Each category's message opens with a plain-text date line (`date`,
- * defaults to now -- overridable for tests/backfills) before its
- * category header, since each is its own standalone message and would
- * otherwise carry no visible sense of which day's digest it's from.
- *
- * Returns the first category's message (there is no longer one single
- * "the" digest message once categories span more than one message).
+ * The accent color is a percentile against `scoringPopulation` (the
+ * whole known catalogue, e.g. every stored Opportunity), NOT just the
+ * handful of items being posted today -- ranking a small daily batch
+ * against itself would be close to meaningless (a single mediocre item
+ * could look "top 10%" of a batch of 3). Defaults to `opportunities`
+ * itself only if no broader population is given (e.g. in tests, or a
+ * first run with nothing else on record yet).
  */
 export async function postDigest(channel, opportunities, { scoringPopulation = opportunities, date = new Date() } = {}) {
   if (opportunities.length === 0) return null;
 
   const allScores = scoringPopulation.map(scoreOpportunity);
-  const { main, overflow } = splitForDigestByCategory(opportunities);
+  const { main, overflow } = splitDigestForPosting(opportunities);
   if (main.length === 0) return null;
 
-  const overflowByCategory = new Map(overflow.map((group) => [group.category, group.items]));
-  let firstMessage = null;
+  const mainMessage = await channel.send({
+    flags: MessageFlags.IsComponentsV2,
+    components: [titleHeader(date), ...buildComponents(main, allScores)],
+  });
 
-  for (const { category, items } of main) {
-    const categoryMessage = await channel.send({
-      flags: MessageFlags.IsComponentsV2,
-      components: [dateHeader(date), categoryHeader(category), ...buildComponents(items, allScores)],
-    });
-    firstMessage ??= categoryMessage;
-
-    const overflowItems = overflowByCategory.get(category) || [];
-    if (overflowItems.length === 0) continue;
-
-    const thread = await categoryMessage.startThread({
-      name: `Ще ${overflowItems.length} ${pluralizeOpportunity(overflowItems.length)}`,
+  const overflowCount = overflow.reduce((sum, group) => sum + group.items.length, 0);
+  if (overflowCount > 0) {
+    const thread = await mainMessage.startThread({
+      name: `Ще ${overflowCount} ${pluralizeOpportunity(overflowCount)}`,
       autoArchiveDuration: ThreadAutoArchiveDuration.OneWeek,
     });
 
-    for (const group of chunk(overflowItems, THREAD_CHUNK_SIZE)) {
-      await thread.send({
-        flags: MessageFlags.IsComponentsV2,
-        components: buildComponents(group, allScores),
-      });
+    for (const { category, items } of overflow) {
+      for (const group of chunk(items, THREAD_CHUNK_SIZE)) {
+        await thread.send({
+          flags: MessageFlags.IsComponentsV2,
+          components: [categoryHeader(category), ...buildComponents(group, allScores)],
+        });
+      }
     }
   }
 
-  return firstMessage;
+  return mainMessage;
 }

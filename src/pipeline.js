@@ -5,6 +5,7 @@ import { attachSummaries } from './lib/summarize.js';
 import { writeToFeed } from './lib/notion-feed.js';
 import { postDigest } from './discord/digest.js';
 import { notifyAdmins } from './discord/alerts.js';
+import { recordUsage, loadUsage, summarizeUsage, formatUsageReport } from './lib/llm-usage.js';
 
 const FIRST_RUN_POST_CAP = 15;
 
@@ -99,6 +100,7 @@ export async function runPipeline(
   } = {},
 ) {
   const issues = [];
+  const runStartedAt = new Date().toISOString();
   const wasFirstRun = (await loadEvents()).length === 0;
 
   const { opportunities, failures, totalSources } = await scrapeAllSources(concurrency);
@@ -111,9 +113,16 @@ export async function runPipeline(
   // the same store write as everything else instead of being computed
   // and then discarded (see lib/store.js's filterNewOpportunities()).
   const candidates = await filterNewOpportunities(opportunities);
-  const summarized = await attachSummaries(candidates, undefined, (error) => {
-    issues.push(`Vertex AI summarization failed, posted/written without summaries: ${error.message}`);
-  });
+  const summarized = await attachSummaries(
+    candidates,
+    {
+      onUsage: (usage) =>
+        recordUsage(usage).catch((error) => console.error('[pipeline] failed to record LLM usage:', error.message)),
+    },
+    (error) => {
+      issues.push(`Vertex AI summarization failed, posted/written without summaries: ${error.message}`);
+    },
+  );
   const newEvents = await appendNewEvents(summarized);
   const catalogue = await loadEvents(); // full stored catalogue, including today's new events -- used to rank/highlight against, not just today's batch
 
@@ -155,12 +164,24 @@ export async function runPipeline(
       (issues.length ? ` issues=${issues.length}` : ''),
   );
 
+  // Sent EVERY run now, not just when issues exist -- per explicit
+  // request to see LLM spend (this run / 7d / 30d / all-time) every
+  // time, not only when something breaks. Issues, if any, still lead the
+  // message so they're not buried under the routine cost line.
+  const usageRecords = await loadUsage();
+  const usageSummary = summarizeUsage(usageRecords, runStartedAt);
+  const pricePerMillion = {
+    input: process.env.GEMINI_INPUT_PRICE_PER_1M_TOKENS ? Number(process.env.GEMINI_INPUT_PRICE_PER_1M_TOKENS) : null,
+    output: process.env.GEMINI_OUTPUT_PRICE_PER_1M_TOKENS ? Number(process.env.GEMINI_OUTPUT_PRICE_PER_1M_TOKENS) : null,
+  };
+
+  const reportLines = [];
   if (issues.length > 0) {
-    await notifyAdmins(
-      client,
-      `[opps-bot] ${issues.length} issue(s) this run:\n${issues.map((issue, i) => `${i + 1}. ${issue}`).join('\n')}`,
-    );
+    reportLines.push(`${issues.length} issue(s) this run:`, ...issues.map((issue, i) => `${i + 1}. ${issue}`), '');
   }
+  reportLines.push('Вартість LLM:', formatUsageReport(usageSummary, pricePerMillion));
+
+  await notifyAdmins(client, `[opps-bot]\n${reportLines.join('\n')}`);
 
   return {
     scraped: opportunities.length,
@@ -168,6 +189,7 @@ export async function runPipeline(
     posted: digestMessage !== null,
     wasFirstRun,
     notionFeed: feedResult,
+    usage: usageSummary,
     issues,
   };
 }

@@ -24,10 +24,13 @@ what you're about to touch.
 dormant-but-built code.** `src/pipeline.js` (see
 [architecture.md](./architecture.md#whats-actually-wired-in)) scrapes,
 dedupes, summarizes via Vertex AI, writes to Notion Feed, and posts the
-Components V2 digest (top 3 in the channel + thread overflow,
-percentile/gold accent colors) — every run, no per-item embed format left
-around unused. `runPipeline()` also collects every problem it hits into
-one consolidated admin DM per run via `src/discord/alerts.js`. The bot
+Components V2 digest (global top 3 in the channel + thread overflow
+grouped by category, percentile/gold accent colors) — every run, no
+per-item embed format left around unused. `runPipeline()` also sends one
+admin DM **every run** (not only when something breaks) via
+`src/discord/alerts.js` — issues, if any, plus an LLM token/cost report
+(this run / 7d / 30d / all-time, see
+[architecture.md](./architecture.md#llm-usage-cost-tracking)). The bot
 itself runs once and exits per invocation; GitHub Actions
 (`.github/workflows/daily-digest.yml`) is what triggers that daily, not an
 in-repo scheduler.
