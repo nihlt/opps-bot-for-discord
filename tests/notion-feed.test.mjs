@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import { toFeedProperties } from '../src/lib/notion-feed.js';
+import { scoreOpportunity } from '../src/lib/scoring.js';
 
 describe('toFeedProperties', () => {
   it('maps the core Opportunity fields onto Notion property shapes', () => {
@@ -79,6 +80,14 @@ describe('toFeedProperties', () => {
   it('omits Deadline entirely when there is no date', () => {
     const props = toFeedProperties({ id: 'x', sourceId: 'ain', kind: 'event', title: 't' });
     assert.equal(props.Deadline, undefined);
+  });
+
+  it('writes Score as finalScore -- blended with relevanceScore when the LLM gave one, not scoreOpportunity alone', () => {
+    const opportunity = { id: 'x', sourceId: 'ain', kind: 'event', title: 'AI Meetup', tags: [], location: 'Kyiv', relevanceScore: 90 };
+    const props = toFeedProperties(opportunity);
+    const heuristic = scoreOpportunity(opportunity);
+    assert.equal(props.Score.number, Math.round((heuristic + 90) / 2));
+    assert.notEqual(props.Score.number, heuristic);
   });
 
   it('truncates very long text fields instead of sending them raw', () => {

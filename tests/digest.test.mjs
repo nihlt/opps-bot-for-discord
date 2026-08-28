@@ -100,6 +100,17 @@ describe('splitDigestForPosting', () => {
     const { main } = splitDigestForPosting([z, a]);
     assert.equal(main[0].title, 'Alpha Meetup');
   });
+
+  it('sorts by finalScore (heuristic blended with relevanceScore), not scoreOpportunity alone', () => {
+    // A generic event (heuristic 25) with a high LLM relevanceScore (95)
+    // should outrank a plain online meetup (heuristic 35) with no LLM
+    // opinion at all -- confirms the LLM's fit score actually flows into
+    // ranking, not just the veto.
+    const llmBoosted = opp('AI Research Program', { relevanceScore: 95 }); // finalScore = round((25+95)/2) = 60
+    const heuristicOnly = opp('Generic Online Meetup', { location: 'Online' }); // finalScore = 35 (no relevanceScore)
+    const { main } = splitDigestForPosting([heuristicOnly, llmBoosted]);
+    assert.equal(main[0].title, 'AI Research Program');
+  });
 });
 
 describe('postDigest', () => {

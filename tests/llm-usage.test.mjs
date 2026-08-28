@@ -111,15 +111,42 @@ describe('summarizeUsage', () => {
 });
 
 describe('formatUsageReport', () => {
-  it('shows token counts and a $ cost figure for every bucket', () => {
-    const usage = {
-      thisRun: { calls: 1, promptTokens: 50, candidatesTokens: 5, totalTokens: 55, cost: 0.00005625 },
-      week: { calls: 2, promptTokens: 450, candidatesTokens: 45, totalTokens: 495, cost: 0.0005 },
-      month: { calls: 3, promptTokens: 750, candidatesTokens: 75, totalTokens: 825, cost: 0.0008 },
-      total: { calls: 5, promptTokens: 1950, candidatesTokens: 195, totalTokens: 2145, cost: 0.0022 },
-    };
+  const usage = {
+    thisRun: { calls: 0, promptTokens: 0, candidatesTokens: 0, totalTokens: 0, cost: 0 },
+    week: { calls: 0, promptTokens: 0, candidatesTokens: 0, totalTokens: 0, cost: 0 },
+    month: { calls: 0, promptTokens: 0, candidatesTokens: 0, totalTokens: 0, cost: 0 },
+    total: { calls: 0, promptTokens: 0, candidatesTokens: 0, totalTokens: 0, cost: 0 },
+  };
+
+  it('titles with "LLM Usage", a prettified model name, and an optional context, joined by " · "', () => {
+    assert.equal(formatUsageReport(usage).split('\n')[0], 'LLM Usage');
+    assert.equal(formatUsageReport(usage, { model: 'gemini-3.7-flash' }).split('\n')[0], 'LLM Usage · Gemini 3.7 Flash');
+    assert.equal(
+      formatUsageReport(usage, { model: 'gemini-3.7-flash', context: 'Replay 08.08' }).split('\n')[0],
+      'LLM Usage · Gemini 3.7 Flash · Replay 08.08',
+    );
+  });
+
+  it('wraps an aligned table in a ```text code block, with a header row and one row per bucket', () => {
     const report = formatUsageReport(usage);
-    assert.ok(report.includes('Цей прогін: 1 запит(ів), 55 токенів (~$0.0001)'));
-    assert.ok(report.includes('Загалом: 5 запит(ів), 2145 токенів (~$0.0022)'));
+    assert.match(report, /```text\n[\s\S]+\n```$/);
+    const tableLines = report.split('```text\n')[1].split('\n```')[0].split('\n');
+    assert.equal(tableLines.length, 5); // header + Run/7d/30d/All
+    assert.match(tableLines[0], /Requests\s+Tokens\s+Cost/);
+    assert.match(tableLines[1], /^Run\s+0\s+0\s+\$0\.0000$/);
+    assert.match(tableLines[4], /^All\s+0\s+0\s+\$0\.0000$/);
+  });
+
+  it('keeps every column aligned (same width) across the header and every data row', () => {
+    const bigUsage = {
+      ...usage,
+      total: { calls: 12345, promptTokens: 0, candidatesTokens: 0, totalTokens: 9_999_999, cost: 12.3456 },
+    };
+    const tableLines = formatUsageReport(bigUsage)
+      .split('```text\n')[1]
+      .split('\n```')[0]
+      .split('\n');
+    const widths = new Set(tableLines.map((line) => line.length));
+    assert.equal(widths.size, 1, `expected every row to share one width, got: ${JSON.stringify(tableLines)}`);
   });
 });

@@ -30,18 +30,34 @@ describe('summarizeOpportunities', () => {
   const items = [opp('a', 'A'), opp('b', 'B')];
   const options = { project: 'p', location: 'us-central1', model: 'm', getAccessToken: fakeGetAccessToken };
 
-  it('returns a Map of id -> summary for a well-formed JSON response', async () => {
-    const fetchImpl = fakeFetchOk(JSON.stringify([{ id: 'a', summary: 'Summary A' }, { id: 'b', summary: 'Summary B' }]));
+  it('returns a Map of id -> { summary, relevant, relevanceScore, reason } for a well-formed JSON response', async () => {
+    const fetchImpl = fakeFetchOk(JSON.stringify([
+      { id: 'a', summary: 'Summary A', relevant: true, relevanceScore: 80, reason: 'good fit' },
+      { id: 'b', summary: 'Summary B', relevant: false, reason: 'charity run, not tech' },
+    ]));
     const result = await summarizeOpportunities(items, { ...options, fetchImpl });
-    assert.equal(result.get('a'), 'Summary A');
-    assert.equal(result.get('b'), 'Summary B');
+    assert.deepEqual(result.get('a'), { summary: 'Summary A', relevant: true, relevanceScore: 80, reason: 'good fit' });
+    assert.deepEqual(result.get('b'), { summary: 'Summary B', relevant: false, relevanceScore: null, reason: 'charity run, not tech' });
   });
 
   it('strips a ```json fence the model wasn\'t supposed to add', async () => {
     const fenced = '```json\n[{"id": "a", "summary": "Fenced summary"}]\n```';
     const fetchImpl = fakeFetchOk(fenced);
     const result = await summarizeOpportunities(items, { ...options, fetchImpl });
-    assert.equal(result.get('a'), 'Fenced summary');
+    assert.equal(result.get('a').summary, 'Fenced summary');
+  });
+
+  it('defaults relevant to true when the model omits it', async () => {
+    const fetchImpl = fakeFetchOk(JSON.stringify([{ id: 'a', summary: 'Summary A' }]));
+    const result = await summarizeOpportunities(items, { ...options, fetchImpl });
+    assert.equal(result.get('a').relevant, true);
+    assert.equal(result.get('a').relevanceScore, null);
+  });
+
+  it('defaults relevanceScore to null when non-numeric or missing on a relevant item', async () => {
+    const fetchImpl = fakeFetchOk(JSON.stringify([{ id: 'a', summary: 'Summary A', relevant: true, relevanceScore: 'high' }]));
+    const result = await summarizeOpportunities(items, { ...options, fetchImpl });
+    assert.equal(result.get('a').relevanceScore, null);
   });
 
   it('returns an empty Map for an empty batch without calling fetch or auth', async () => {
@@ -148,25 +164,37 @@ describe('attachSummaries', () => {
   const items = [opp('a', 'A'), opp('b', 'B')];
   const options = { project: 'p', location: 'us-central1', model: 'm', getAccessToken: fakeGetAccessToken };
 
-  it('attaches .summary to each opportunity on success', async () => {
-    const fetchImpl = fakeFetchOk(JSON.stringify([{ id: 'a', summary: 'Summary A' }, { id: 'b', summary: 'Summary B' }]));
+  it('attaches .summary/.relevant/.relevanceScore/.relevanceReason to each opportunity on success', async () => {
+    const fetchImpl = fakeFetchOk(JSON.stringify([
+      { id: 'a', summary: 'Summary A', relevant: true, relevanceScore: 80, reason: 'good fit' },
+      { id: 'b', summary: 'Summary B', relevant: false, reason: 'charity run, not tech' },
+    ]));
     const result = await attachSummaries(items, { ...options, fetchImpl });
     assert.equal(result[0].summary, 'Summary A');
+    assert.equal(result[0].relevant, true);
+    assert.equal(result[0].relevanceScore, 80);
+    assert.equal(result[0].relevanceReason, 'good fit');
     assert.equal(result[1].summary, 'Summary B');
+    assert.equal(result[1].relevant, false);
+    assert.equal(result[1].relevanceReason, 'charity run, not tech');
   });
 
-  it('sets .summary to null (not the original description) for every item on API failure -- never throws', async () => {
+  it('sets .summary to null and fail-opens .relevant to true (not the original description) for every item on API failure -- never throws', async () => {
     const result = await attachSummaries(items, { ...options, fetchImpl: fakeFetchHttpError(503) });
     assert.equal(result.length, 2);
     assert.equal(result[0].summary, null);
     assert.equal(result[1].summary, null);
+    assert.equal(result[0].relevant, true);
+    assert.equal(result[0].relevanceScore, null);
+    assert.equal(result[0].relevanceReason, null);
     // Original fields are preserved, just summary added.
     assert.equal(result[0].description, 'desc');
   });
 
-  it('sets .summary to null on a network failure -- never throws', async () => {
+  it('sets .summary to null and .relevant to true on a network failure -- never throws', async () => {
     const result = await attachSummaries(items, { ...options, fetchImpl: fakeFetchThrows() });
     assert.equal(result.every((o) => o.summary === null), true);
+    assert.equal(result.every((o) => o.relevant === true), true);
   });
 
   it('calls onFailure with the error on failure, but still never throws', async () => {
@@ -200,10 +228,24 @@ describe('attachSummaries', () => {
     assert.deepEqual(result, []);
   });
 
-  it('sets .summary to null for an id the model omitted from its response', async () => {
+  it('sets .summary to null and fail-opens .relevant to true for an id the model omitted from its response', async () => {
     const fetchImpl = fakeFetchOk(JSON.stringify([{ id: 'a', summary: 'Summary A' }])); // 'b' missing
     const result = await attachSummaries(items, { ...options, fetchImpl });
     assert.equal(result[0].summary, 'Summary A');
     assert.equal(result[1].summary, null);
+    assert.equal(result[1].relevant, true);
+    assert.equal(result[1].relevanceScore, null);
+  });
+
+  it('preserves an explicit relevant: false verdict through to the attached opportunity', async () => {
+    const fetchImpl = fakeFetchOk(JSON.stringify([
+      { id: 'a', summary: 'Charity run summary', relevant: false, reason: 'sports event, not tech' },
+      { id: 'b', summary: 'Summary B', relevant: true, relevanceScore: 70 },
+    ]));
+    const result = await attachSummaries(items, { ...options, fetchImpl });
+    assert.equal(result[0].relevant, false);
+    assert.equal(result[0].relevanceReason, 'sports event, not tech');
+    assert.equal(result[1].relevant, true);
+    assert.equal(result[1].relevanceScore, 70);
   });
 });

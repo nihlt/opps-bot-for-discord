@@ -57,8 +57,38 @@ in the middle gets lost. Always include the currency symbol/code (₴, $,
 грн, USD) right next to the number, never a bare digit -- the currency
 mark itself is part of what catches the eye.
 
+You must ALSO judge whether each item is actually relevant to this specific
+audience (1st-4th year CS / AI Systems undergrads at LPNU):
+
+RELEVANT: hackathons and coding/ML competitions; fellowships, grants,
+scholarships; tech jobs, internships, trainee programs (software
+engineering, data science, ML, AI); tech conferences, workshops, or courses
+on programming/AI/ML/data; CS/STEM research or exchange programs.
+
+NOT relevant (mark "relevant": false), even if a tech company organizes or
+sponsors it: generic sports events, charity runs, cultural/social/community
+events, generic business/entrepreneurship events with no CS angle, events
+for an unrelated professional field.
+
+Decision rule: does the event's own ACTIVITY (not who organizes or sponsors
+it) build a technical skill, a resume line, or a career opportunity
+specifically valuable to a CS/AI student? If the only tech connection is the
+sponsor/organizer's identity and the activity itself isn't technical or
+CS-career-relevant, mark "relevant": false.
+
+Example: "Charity Run у Львові OBRIO × Chumaky × Молодвіж" -> relevant:
+false (it's a sports event; a tech company sponsoring it doesn't make
+running technical). Contrast: "AI/ML Hackathon Kyiv" -> relevant: true.
+
+For every item with "relevant": true, also give a "relevanceScore" from 0
+to 100 rating how strong the fit is (a vetoed/irrelevant item does not need
+a meaningful score -- omit it or leave it low, it will not be used): 90-100
+= flagship, highly specific fit (e.g. a national ML hackathon with real
+prizes); 60-89 = clearly relevant but not top-tier; 30-59 = tangentially
+relevant, weaker CS/AI connection.
+
 Respond with ONLY a JSON array, no markdown fences, no commentary, in this exact shape:
-[{"id": "<id>", "summary": "<one sentence>"}]
+[{"id": "<id>", "summary": "<one sentence>", "relevant": true, "relevanceScore": <0-100>, "reason": "<short reason>"}]
 
 Items:
 ${JSON.stringify(items, null, 2)}`;
@@ -72,10 +102,15 @@ function extractJsonText(candidateText) {
 
 /**
  * Asks Gemini (via Vertex AI, OAuth2/ADC auth) for a one-sentence,
- * concrete-benefit summary of each opportunity, in a single batched call.
- * Returns a Map from opportunity id to summary text -- only for ids the
- * model actually returned. Throws on any failure (auth, network, non-2xx,
- * unparseable JSON); callers decide how to degrade (see attachSummaries).
+ * concrete-benefit summary of each opportunity, plus a relevance verdict,
+ * in a single batched call. Returns a Map from opportunity id to
+ * { summary, relevant, relevanceScore, reason } -- only for ids the model
+ * actually returned. Per-item, a missing/non-boolean "relevant" defaults to
+ * true and a missing/non-finite "relevanceScore" defaults to null
+ * (fail-open: never silently veto something the model didn't clearly
+ * reject, and never fabricate a score it didn't actually give). Throws on
+ * any call-level failure (auth, network, non-2xx, unparseable JSON);
+ * callers decide how to degrade (see attachSummaries).
  */
 export async function summarizeOpportunities(
   opportunities,
@@ -130,30 +165,47 @@ export async function summarizeOpportunities(
 
   const summaries = new Map();
   for (const item of parsed) {
-    if (item?.id && item?.summary) summaries.set(item.id, item.summary);
+    if (!item?.id || !item?.summary) continue;
+    const relevant = typeof item.relevant === 'boolean' ? item.relevant : true;
+    const relevanceScore = Number.isFinite(item.relevanceScore) ? item.relevanceScore : null;
+    summaries.set(item.id, { summary: item.summary, relevant, relevanceScore, reason: item.reason || null });
   }
   return summaries;
 }
 
 /**
- * Attaches a `.summary` to each opportunity. On any failure, every
- * opportunity gets `.summary = null` instead of a partial/stale result --
- * callers (see digest.js) treat null as "show nothing", not "fall back to
- * the raw scraped description", per house convention: a failed summary
- * should just be absent, not replaced with recycled promotional filler.
- * Never throws. `onFailure(error)`, if given, lets a caller (see
- * pipeline.js) surface this into its own run-level issue reporting --
- * this function only logs to the console on its own.
+ * Attaches `.summary`, `.relevant`, `.relevanceScore`, `.relevanceReason` to
+ * each opportunity. On any call-level failure, every opportunity fail-opens
+ * to `.summary = null, .relevant = true, .relevanceScore = null,
+ * .relevanceReason = null` -- an outage must never silently veto or blank
+ * out a real opportunity, matching the house convention that a failed
+ * summary should be absent, not replaced with recycled promotional filler
+ * (see digest.js treating a null summary as "show nothing"). Never throws.
+ * `onFailure(error)`, if given, lets a caller (see pipeline.js) surface this
+ * into its own run-level issue reporting -- this function only logs to the
+ * console on its own.
  */
 export async function attachSummaries(opportunities, options, onFailure) {
   if (opportunities.length === 0) return [];
 
+  const fallback = { summary: null, relevant: true, relevanceScore: null, relevanceReason: null };
+
   try {
-    const summaries = await summarizeOpportunities(opportunities, options);
-    return opportunities.map((o) => ({ ...o, summary: summaries.get(o.id) || null }));
+    const results = await summarizeOpportunities(opportunities, options);
+    return opportunities.map((o) => {
+      const result = results.get(o.id);
+      if (!result) return { ...o, ...fallback };
+      return {
+        ...o,
+        summary: result.summary,
+        relevant: result.relevant,
+        relevanceScore: result.relevanceScore,
+        relevanceReason: result.reason,
+      };
+    });
   } catch (error) {
     console.error('[summarize] Vertex AI call failed, leaving summaries blank:', error.message);
     if (onFailure) onFailure(error);
-    return opportunities.map((o) => ({ ...o, summary: null }));
+    return opportunities.map((o) => ({ ...o, ...fallback }));
   }
 }

@@ -123,3 +123,20 @@ export function scoreOpportunity(opportunity) {
 
   return Math.max(0, Math.min(100, score));
 }
+
+/**
+ * The score actually used for ranking/display (see digest.js, notion-feed.js)
+ * -- averages the heuristic score above with the LLM's own 0-100
+ * `relevanceScore` (see lib/summarize.js), when one is available. An item
+ * the LLM vetoed (`relevant: false`) is filtered out upstream before this
+ * ever runs (see pipeline.js), so this function never needs to special-case
+ * a veto itself. `relevanceScore` is `null` (not e.g. a fabricated 50)
+ * whenever the LLM had no opinion -- an outage, or a model response that
+ * omitted it -- so falling back to the heuristic alone here is the correct
+ * "no information to blend" behavior, not a lossy default.
+ */
+export function finalScore(opportunity) {
+  const heuristic = scoreOpportunity(opportunity);
+  if (opportunity.relevanceScore == null) return heuristic;
+  return Math.round((heuristic + opportunity.relevanceScore) / 2);
+}

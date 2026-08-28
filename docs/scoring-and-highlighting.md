@@ -1,15 +1,22 @@
 # Scoring and highlighting
 
-Two separate, deliberately decoupled mechanisms:
+Three separate, deliberately decoupled mechanisms:
 
 1. **`scoreOpportunity()`** (`src/lib/scoring.js`) — a deterministic 0-100
    heuristic, no LLM involved. Computed for every opportunity, always, with
    no dependency on a batch or population.
-2. **`percentileColor()` / `percentileOf()`** (`src/discord/score-color.js`)
+2. **The LLM relevance veto + `relevanceScore`** (`src/lib/summarize.js`) —
+   a semantic judgment call the regex heuristic above structurally can't
+   make. See "LLM relevance veto and `finalScore()`" below.
+3. **`percentileColor()` / `percentileOf()`** (`src/discord/score-color.js`)
    — maps a score to an accent color, but only *relative to a population
    of scores you pass in*. This is population-dependent by design; see
    "the scoringPopulation trap" below. (`percentileOf()` used to also
    drive a visible "better than 0.NN" text label — removed, see below.)
+
+Everything that actually ranks/displays an item (`digest.js`'s sort order
+and accent color, `notion-feed.js`'s `Score` property) uses `finalScore()`,
+not `scoreOpportunity()` directly — see below.
 
 ## The scoring rubric
 
@@ -114,6 +121,92 @@ describing itself as a hackathon. The cost is a few genuine
 "competition" — accepted, since a false "this is a hackathon that pays
 prize money" is worse than an occasional missed real one.
 
+This same charity run is also the motivating example for the LLM relevance
+veto below: even with the miscategorization fixed, it still passes every
+keyword filter as a generic "Event" and picks up the Lviv location bonus —
+regex has no way to know a charity run isn't something a CS/AI student
+audience cares about. That's exactly the gap the LLM veto closes; it's used
+verbatim as the in-prompt negative example (see below).
+
+### LLM relevance veto and `finalScore()`
+
+Regex/keyword rules (`isFellowship()`, `isHackathon()`, the location/AI-fit
+bonuses above) can only match surface patterns — they can't tell that
+"Charity Run у Львові OBRIO × Chumaky × Молодвіж" is a sports event just
+because a tech company sponsors it. `src/lib/summarize.js`'s single
+batched Vertex AI call (the same one that writes the digest's one-sentence
+summary) also asks the model to judge each new item against an explicit
+rubric for the same audience (1st-4th year CS/AI Systems LPNU undergrads):
+
+- **Relevant**: hackathons/coding & ML competitions; fellowships/grants/
+  scholarships; tech jobs/internships/trainee programs; tech conferences/
+  workshops/courses on programming/AI/ML/data; CS/STEM research or
+  exchange programs.
+- **Not relevant**, even if a tech company organizes or sponsors it:
+  generic sports events, charity runs, cultural/social/community events,
+  generic business/entrepreneurship events with no CS angle, events for an
+  unrelated professional field.
+- **Decision rule given verbatim to the model**: does the event's own
+  *activity* (not who organizes or sponsors it) build a technical skill, a
+  resume line, or a career opportunity specifically valuable to a CS/AI
+  student? If the only tech connection is the sponsor/organizer's identity
+  and the activity itself isn't technical or CS-career-relevant, it's not
+  relevant.
+- The actual charity-run title above is given to the model as an in-prompt
+  few-shot negative example, paired with a clearly-relevant contrast
+  example — a concrete anchor beats an abstract rule.
+
+The model returns `relevant` (boolean) and, only when `relevant: true`, a
+`relevanceScore` (0-100, same anchors philosophy as `scoreOpportunity()`:
+90-100 flagship/highly specific fit, 60-89 clearly relevant but not
+top-tier, 30-59 tangentially relevant).
+
+**The veto is absolute and happens before ranking, not as part of it**:
+`src/pipeline.js` filters `newEvents` down to `relevant !== false` right
+after persisting (see below for why persistence itself is unconditional)
+and *before* either `writeToFeed()` or `postDigest()` ever see the list —
+no heuristic score, however high, can override an LLM veto. `finalScore()`
+(`src/lib/scoring.js`) is only ever computed for items that already
+survived that filter:
+
+```js
+export function finalScore(opportunity) {
+  const heuristic = scoreOpportunity(opportunity);
+  if (opportunity.relevanceScore == null) return heuristic;
+  return Math.round((heuristic + opportunity.relevanceScore) / 2);
+}
+```
+
+A straight 50/50 average with the heuristic score, not an LLM-only score —
+`scoreOpportunity()` stays the authoritative, deterministic, independently
+tested ranking signal; the LLM only adds a second opinion on top of it, and
+only for the subset of ranking-relevant nuance a keyword match can't see
+(e.g. how strong an AI hackathon's actual fit is, not just that it matched
+`aiFitPattern`). `digest.js`'s sort order/accent color and
+`notion-feed.js`'s `Score` property both call `finalScore()`, never
+`scoreOpportunity()` directly, any more.
+
+**Fail-open, deliberately, at both layers**: `relevanceScore == null` (an
+LLM outage, a per-item response that omitted it, or an item that was never
+even sent to the LLM) makes `finalScore()` fall back to the heuristic alone
+— never a fabricated mid-scale number. And `attachSummaries()` itself
+defaults every field to the safest "don't suppress anything" values
+(`relevant: true`, `relevanceScore: null`) on a total call failure, the same
+philosophy as `.summary = null` on failure: an AI outage must degrade
+gracefully, never silently hide a real opportunity.
+
+**Persistence is unconditional, independent of the veto**: every new item —
+vetoed or not — still gets written to `data/events.jsonl` via the normal
+`appendNewEvents()` call, *before* the veto filter is even applied. This is
+the actual efficiency point of doing relevance judgment in the summarize
+call at all: a vetoed item is dedup-recognized and never re-scraped/re-sent
+to the LLM on a later run, so the one-time judgment cost is paid exactly
+once per item, ever — not once per day for as long as the source keeps
+listing it. The veto only gates the *display* boundary (`writeToFeed()`,
+`postDigest()`, and `src/replay-digest.js`'s manual replay tool, which
+applies the identical `relevant !== false` filter since it bypasses
+`pipeline.js` entirely), never the store write.
+
 ### The `Payable` checkbox / the `· $` marker
 
 `hasMoneyPrize()` (`src/lib/normalize.js`, alongside `isFellowship()` and
@@ -200,8 +293,10 @@ percentile scope."
 
 ## Not the same as the Notion `Score` property
 
-`lib/notion-feed.js` writes `scoreOpportunity()`'s result into every row's
-`Score` property in "Opportunities Feed." The user's separately-scheduled
+`lib/notion-feed.js` writes `finalScore()`'s result (see above — the
+heuristic blended with the LLM's `relevanceScore` when it gave one) into
+every row's `Score` property in "Opportunities Feed." The user's
+separately-scheduled
 Claude agent (outside this codebase) is expected to independently evaluate
 and potentially overwrite `Score` on the "Opportunities" database (a
 *different* database — see [notion-integration.md](./notion-integration.md))

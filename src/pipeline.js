@@ -126,9 +126,16 @@ export async function runPipeline(
   const newEvents = await appendNewEvents(summarized);
   const catalogue = await loadEvents(); // full stored catalogue, including today's new events -- used to rank/highlight against, not just today's batch
 
+  // Everything above persists to the store regardless of the LLM's verdict
+  // (see attachSummaries in lib/summarize.js) -- a vetoed item is never
+  // re-scraped/re-sent to the LLM tomorrow. The veto only applies here, at
+  // the display/write boundary: `relevant: false` means Notion Feed and the
+  // Discord digest never see it, at all, regardless of its heuristic score.
+  const relevantNewEvents = newEvents.filter((o) => o.relevant !== false);
+
   let feedResult = { written: 0, skipped: 0, failures: [] };
   try {
-    feedResult = await writeToFeed(newEvents);
+    feedResult = await writeToFeed(relevantNewEvents);
     if (feedResult.failures.length > 0) {
       issues.push(`Notion Feed: ${feedResult.failures.length} row(s) failed to write: ${feedResult.failures.map((f) => f.message).join('; ')}`);
     }
@@ -138,10 +145,10 @@ export async function runPipeline(
   }
 
   const toPost = lookbackDays
-    ? withinLookbackWindow(catalogue, lookbackDays)
+    ? withinLookbackWindow(catalogue, lookbackDays).filter((o) => o.relevant !== false)
     : wasFirstRun
-      ? pickFirstRunBatch(newEvents, FIRST_RUN_POST_CAP)
-      : newEvents;
+      ? pickFirstRunBatch(relevantNewEvents, FIRST_RUN_POST_CAP)
+      : relevantNewEvents;
 
   let digestMessage = null;
   if (toPost.length > 0) {
@@ -175,9 +182,9 @@ export async function runPipeline(
   if (issues.length > 0) {
     reportLines.push(`${issues.length} issue(s) this run:`, ...issues.map((issue, i) => `${i + 1}. ${issue}`), '');
   }
-  reportLines.push('Вартість LLM:', formatUsageReport(usageSummary));
+  reportLines.push(formatUsageReport(usageSummary, { model: process.env.GEMINI_MODEL }));
 
-  await notifyAdmins(client, `[opps-bot]\n${reportLines.join('\n')}`);
+  await notifyAdmins(client, reportLines.join('\n'));
 
   return {
     scraped: opportunities.length,

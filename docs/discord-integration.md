@@ -16,7 +16,11 @@ opportunities. Built, unit-tested, and demonstrated live via one-off
 scripts many times during development before being wired into
 `runPipeline()` for real.
 
-What it does: sorts every opportunity by `scoreOpportunity()`, posts the
+What it does: sorts every opportunity by `finalScore()` (`lib/scoring.js` —
+the heuristic `scoreOpportunity()` blended with the LLM's `relevanceScore`,
+see [scoring-and-highlighting.md](./scoring-and-highlighting.md); items the
+LLM vetoed (`relevant: false`) never reach `postDigest()` at all, filtered
+out upstream in `pipeline.js`), posts the
 **global top 3** (regardless of category) in one titled channel message —
 `**Нові можливості за {date}**`, then each of those 3 as a Components V2
 `Container` with a "Відкрити" link button — and, if there's more, opens

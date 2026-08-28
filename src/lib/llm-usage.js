@@ -117,13 +117,55 @@ export function summarizeUsage(records, runStartedAt, now = Date.now()) {
   };
 }
 
-/** Renders the four-bucket usage summary as plain text lines, for an admin DM. */
-export function formatUsageReport(usage) {
-  const line = (label, bucket) => `${label}: ${bucket.calls} запит(ів), ${bucket.totalTokens} токенів (~$${bucket.cost.toFixed(4)})`;
-  return [
-    line('Цей прогін', usage.thisRun),
-    line('За 7 днів', usage.week),
-    line('За 30 днів', usage.month),
-    line('Загалом', usage.total),
-  ].join('\n');
+// "gemini-3.7-flash" -> "Gemini 3.7 Flash" -- each hyphen-separated part
+// that starts with a letter gets capitalized; a version number like "3.7"
+// is left as-is. Falls back to the raw id for a shape this doesn't expect
+// rather than mangling it.
+function prettyModelName(id) {
+  if (!id) return null;
+  return id
+    .split('-')
+    .map((part) => (/^[a-zA-Z]/.test(part) ? part[0].toUpperCase() + part.slice(1) : part))
+    .join(' ');
+}
+
+const USAGE_TABLE_ROWS = [
+  { key: 'thisRun', label: 'Run' },
+  { key: 'week', label: '7d' },
+  { key: 'month', label: '30d' },
+  { key: 'total', label: 'All' },
+];
+
+// A monospace table, column widths sized to the actual content (not fixed)
+// so a wide total token count or cost never throws off alignment the way a
+// fixed-width format would.
+function renderUsageTable(usage) {
+  const rows = USAGE_TABLE_ROWS.map(({ key, label }) => {
+    const bucket = usage[key];
+    return { label, requests: String(bucket.calls), tokens: String(bucket.totalTokens), cost: `$${bucket.cost.toFixed(4)}` };
+  });
+
+  const labelWidth = Math.max(...rows.map((r) => r.label.length));
+  const requestsWidth = Math.max('Requests'.length, ...rows.map((r) => r.requests.length));
+  const tokensWidth = Math.max('Tokens'.length, ...rows.map((r) => r.tokens.length));
+  const costWidth = Math.max('Cost'.length, ...rows.map((r) => r.cost.length));
+
+  const headerRow = [' '.repeat(labelWidth), 'Requests'.padStart(requestsWidth), 'Tokens'.padStart(tokensWidth), 'Cost'.padStart(costWidth)].join('  ');
+  const dataRows = rows.map((r) =>
+    [r.label.padEnd(labelWidth), r.requests.padStart(requestsWidth), r.tokens.padStart(tokensWidth), r.cost.padStart(costWidth)].join('  '),
+  );
+  return [headerRow, ...dataRows].join('\n');
+}
+
+/**
+ * Renders the four-bucket usage summary as a title line ("LLM Usage ·
+ * {model} · {context}", either optional) followed by an aligned monospace
+ * table in a code block, for an admin DM. `model` is the raw GEMINI_MODEL
+ * id (e.g. "gemini-3.7-flash") -- prettified here so callers don't each
+ * reimplement that. `context` is a short caller-supplied tag, e.g. a
+ * replay's date range -- omitted for a normal run.
+ */
+export function formatUsageReport(usage, { model, context } = {}) {
+  const title = ['LLM Usage', prettyModelName(model), context].filter(Boolean).join(' · ');
+  return `${title}\n\n\`\`\`text\n${renderUsageTable(usage)}\n\`\`\``;
 }

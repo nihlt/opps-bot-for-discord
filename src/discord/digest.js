@@ -9,7 +9,7 @@ import {
   ButtonBuilder,
   ButtonStyle,
 } from 'discord.js';
-import { scoreOpportunity } from '../lib/scoring.js';
+import { finalScore } from '../lib/scoring.js';
 import { isFellowship, isHackathon, hasMoneyPrize } from '../lib/normalize.js';
 import { percentileColor } from './score-color.js';
 
@@ -92,7 +92,7 @@ function formatShortDate(dateNormalized) {
 }
 
 function itemContainer(opportunity, allScores) {
-  const score = scoreOpportunity(opportunity);
+  const score = finalScore(opportunity);
   // The accent color still reflects the percentile band (gold top-10%,
   // gray ramp, none for the bottom half) -- only the visible "score N ·
   // better than 0.NN" text is gone, per explicit user request that the
@@ -157,14 +157,14 @@ function chunk(array, size) {
 }
 
 /**
- * Sorts by score descending; ties (common -- scoreOpportunity() only has
- * so many achievable values) break by earliest-discovered first, then by
+ * Sorts by score descending (finalScore() -- see lib/scoring.js); ties
+ * (common -- only so many achievable values) break by earliest-discovered first, then by
  * title, so equal-score items land in a deliberate, explainable order
  * instead of whatever order they happened to survive filtering in.
  */
 function sortByScoreDesc(opportunities) {
   return [...opportunities].sort((a, b) => {
-    const scoreDiff = scoreOpportunity(b) - scoreOpportunity(a);
+    const scoreDiff = finalScore(b) - finalScore(a);
     if (scoreDiff !== 0) return scoreDiff;
     const aSeen = a.firstSeenAt ? Date.parse(a.firstSeenAt) : Infinity;
     const bSeen = b.firstSeenAt ? Date.parse(b.firstSeenAt) : Infinity;
@@ -219,7 +219,7 @@ export function splitDigestForPosting(opportunities, limit = MAIN_MESSAGE_LIMIT)
 export async function postDigest(channel, opportunities, { scoringPopulation = opportunities, date = new Date() } = {}) {
   if (opportunities.length === 0) return null;
 
-  const allScores = scoringPopulation.map(scoreOpportunity);
+  const allScores = scoringPopulation.map(finalScore);
   const { main, overflow } = splitDigestForPosting(opportunities);
   if (main.length === 0) return null;
 

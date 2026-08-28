@@ -32,8 +32,11 @@ assuming "just merge them" is obviously right.
 - Schema: `Name`, `Link`, `Kind` (event/job), `Tags` (multi-select, options
   grow dynamically as new tags appear), `Location`, `Payment`,
   `Description` (the raw scraped text), `Company`, `Source` (which scraper
-  it came from), `Deadline`, `Score` (number, our own heuristic — see
-  [scoring-and-highlighting.md](./scoring-and-highlighting.md)), `Payable`
+  it came from), `Deadline`, `Score` (number, `finalScore()` — the heuristic
+  blended with the LLM's relevance-fit score, when it gave one — see
+  [scoring-and-highlighting.md](./scoring-and-highlighting.md)). Only rows
+  the LLM didn't veto (`relevant !== false`) get written here at all — see
+  the same doc for the veto mechanism. `Payable`
   (checkbox, `hasMoneyPrize()` — true only for a hackathon/competition/
   fellowship with a stated concrete money figure, see
   [scoring-and-highlighting.md](./scoring-and-highlighting.md#the-payable-checkbox--the--marker)),

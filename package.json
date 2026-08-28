@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "start": "node src/index.js",
+    "replay-digest": "node src/replay-digest.js",
     "test": "node --test \"tests/*.test.mjs\""
   },
   "dependencies": {

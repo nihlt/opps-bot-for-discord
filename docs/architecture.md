@@ -11,11 +11,13 @@ flowchart TD
     L -->|success| S["scrapeAllSources<br/>9 sources, bounded concurrency"]
     S --> P[applyEventPaymentPolicy per item]
     P --> F["filterNewOpportunities<br/>diff vs data/events.jsonl, no write yet"]
-    F --> V["attachSummaries<br/>Vertex AI, one batched call, candidates only"]
-    V -->|fails| V2[".summary = null for the whole batch"]
-    V --> D["appendNewEvents<br/>persist WITH summary + stamped firstSeenAt"]
-    D --> N["writeToFeed<br/>Notion Opportunities Feed, incl. Date Found"]
-    D --> C["postDigest<br/>global top 3 + one thread grouped by category"]
+    F --> V["attachSummaries<br/>Vertex AI, one batched call, candidates only<br/>also returns relevant + relevanceScore per item"]
+    V -->|fails| V2[".summary=null, relevant=true, relevanceScore=null (fail-open) for the whole batch"]
+    V --> D["appendNewEvents<br/>persist WITH summary + relevant/relevanceScore, ALWAYS, regardless of verdict"]
+    D --> RV{"relevant !== false?"}
+    RV -->|no: vetoed, stored but never shown| X["excluded from Notion Feed + Discord"]
+    RV -->|yes| N["writeToFeed<br/>Notion Opportunities Feed, incl. Date Found, Score=finalScore()"]
+    RV -->|yes| C["postDigest<br/>global top 3 + one thread grouped by category, ranked by finalScore()"]
     S -->|a source fails| I[issues.push]
     V2 --> I
     N -->|fails| I
@@ -55,35 +57,45 @@ config/sources.json (9 registered sources, 1 disabled)
         ▼
   attachSummaries() (src/lib/summarize.js)
   — one batched Vertex AI (Gemini) call for just the new candidates,
-    asks for a JSON array of {id, summary}. ANY failure (auth, network,
-    bad JSON, HTTP error) degrades every item's .summary to null rather
-    than throwing -- never blocks what comes next.
+    asks for a JSON array of {id, summary, relevant, relevanceScore,
+    reason}. ANY failure (auth, network, bad JSON, HTTP error) fail-opens
+    every item to {summary: null, relevant: true, relevanceScore: null}
+    rather than throwing -- never blocks what comes next, and never
+    silently vetoes something on account of an outage.
         │
         ▼
   appendNewEvents() (src/lib/store.js)
-  — persists the now-summarized items atomically; stamps `firstSeenAt`
-    on anything that doesn't already have one (only sources/notion.js
-    ever sets it directly, from Notion's own "Date found"). Summarizing
-    BEFORE this write (not after, as it used to) is what lets `.summary`
+  — persists the now-summarized items atomically, UNCONDITIONALLY (every
+    item, whichever way the LLM judged it -- see "LLM relevance veto"
+    below for why); stamps `firstSeenAt` on anything that doesn't already
+    have one (only sources/notion.js ever sets it directly, from Notion's
+    own "Date found"). Summarizing BEFORE this write (not after, as it
+    used to) is what lets `.summary`/`.relevant`/`.relevanceScore`
     actually end up in data/events.jsonl instead of being discarded once
     the run ends.
+        │
+        ▼
+  filter to relevant !== false (src/pipeline.js)
+  — items the LLM vetoed are already persisted above (never re-sent to
+    the LLM on a later run) but are dropped here, before EITHER of the
+    two branches below ever sees them.
         │
         ├──────────────────────────────┐
         ▼                              ▼
   writeToFeed() (src/lib/notion-feed.js)   postDigest() (src/discord/digest.js)
   — writes NEW, non-notion-sourced          — ONE titled channel message
     opportunities to "Opportunities Feed"     with the GLOBAL top 3 by
-    in Notion, each with a heuristic          score (not top 3 per
-    Score (src/lib/scoring.js), Payable       category); if there's more,
-    checkbox (hasMoneyPrize()), Date          ONE thread off it grouped by
-    Found (firstSeenAt), and Summary          category (Hackathons/Events/
-    when one came back from Vertex AI         Fellowship Programs/Jobs/
-    (omitted, not left blank, otherwise).     Online Events). Ranked
-                                               against the FULL catalogue
-                                               (loadEvents() re-read after
-                                               append), not just today's
-                                               batch. Which items post —
-                                               see below.
+    in Notion, each with Score = finalScore() score (not top 3 per
+    (src/lib/scoring.js -- heuristic          category); if there's more,
+    blended with the LLM's relevanceScore),   ONE thread off it grouped by
+    Payable checkbox (hasMoneyPrize()),       category (Hackathons/Events/
+    Date Found (firstSeenAt), and Summary     Fellowship Programs/Jobs/
+    when one came back from Vertex AI         Online Events). Ranked by
+    (omitted, not left blank, otherwise).     finalScore() against the
+                                               FULL catalogue (loadEvents()
+                                               re-read after append), not
+                                               just today's batch. Which
+                                               items post -- see below.
         │                                       │
         └───────────────────┬───────────────────┘
                              ▼
@@ -220,8 +232,8 @@ than left around unused.
 | Scrape all sources | `sources/index.js`, `sources/*.js` |
 | Payment policy filter | `lib/normalize.js` |
 | Dedupe/store | `lib/store.js` |
-| Heuristic score | `lib/scoring.js` (used by `writeToFeed` and `digest.js`) |
-| Vertex AI (Gemini) summarization | `lib/summarize.js` |
+| Heuristic score + LLM-blended `finalScore()` | `lib/scoring.js` (used by `writeToFeed` and `digest.js`) |
+| Vertex AI (Gemini) summarization + relevance veto/score | `lib/summarize.js` |
 | Write to Notion Feed (incl. Summary) | `lib/notion-feed.js` |
 | Components V2 digest (global top-3 + category-grouped thread, percentile accent colors) | `discord/digest.js`, `discord/score-color.js` |
 | Admin DM every run (issues if any + LLM cost report) | `discord/alerts.js`, `lib/llm-usage.js` |
@@ -249,8 +261,9 @@ and [resilience.md](./resilience.md) for the remaining honest caveats
 - `src/index.js` — entrypoint: login, run once, destroy client, exit;
   best-effort alert on fatal startup errors.
 - `src/pipeline.js` — orchestrates one full run: scrape → filter → dedupe
-  → summarize → Notion write → Discord digest post → admin DM every run
-  (issues if any + LLM cost report).
+  → summarize (incl. LLM relevance veto) → persist unconditionally →
+  filter to `relevant !== false` → Notion write → Discord digest post →
+  admin DM every run (issues if any + LLM cost report).
 - `src/sources/index.js` — reads `config/sources.json`, dynamic-imports the
   right module per source, dispatches `fetchOpportunities(sourceConfig)`.
 - `src/sources/*.js` — one per source; see [sources.md](./sources.md).
@@ -258,12 +271,14 @@ and [resilience.md](./resilience.md) for the remaining honest caveats
   date parsing, keyword-based tag/location inference, the payment policy
   filter, and the opportunity-classification predicates `isFellowship()`,
   `isHackathon()`, `hasMoneyPrize()`.
-- `src/lib/scoring.js` — `scoreOpportunity()`, the 0-100 heuristic. See
-  [scoring-and-highlighting.md](./scoring-and-highlighting.md).
+- `src/lib/scoring.js` — `scoreOpportunity()`, the 0-100 heuristic, plus
+  `finalScore()` (blends it with the LLM's `relevanceScore`, when given).
+  See [scoring-and-highlighting.md](./scoring-and-highlighting.md).
 - `src/lib/store.js` — JSONL load/append with atomic write + id dedupe.
 - `src/lib/notion-feed.js` — writes to the "Opportunities Feed" Notion
-  database. See [notion-integration.md](./notion-integration.md).
-- `src/lib/summarize.js` — Vertex AI (Gemini) one-sentence summarization,
+  database, `Score` = `finalScore()`. See [notion-integration.md](./notion-integration.md).
+- `src/lib/summarize.js` — Vertex AI (Gemini) one-sentence summarization
+  plus a relevance veto (`relevant`) and fit score (`relevanceScore`),
   batched, JSON-mode, OAuth2/ADC auth; reports token usage via `onUsage()`.
 - `src/lib/llm-usage.js` — persists/aggregates Vertex AI token usage
   (`data/llm-usage.jsonl`) into this-run/7d/30d/all-time buckets, and
@@ -294,10 +309,27 @@ Every source module returns objects matching this shape (frozen by
                  // a real "date we found this" once stored -- see
                  // scoring-and-highlighting.md for what reads it
   // added later in the pipeline, not by normalizeOpportunity itself:
-  summary   // lib/summarize.js's attachSummaries() -- always called for
-            // new events before they're persisted (see pipeline.js), so
-            // this is now part of the stored record too, not just a
-            // this-run-only value; null if Vertex AI failed for this item
+  summary          // lib/summarize.js's attachSummaries() -- always called
+                    // for new events before they're persisted (see
+                    // pipeline.js), so this is now part of the stored
+                    // record too, not just a this-run-only value; null if
+                    // Vertex AI failed for this item
+  relevant          // boolean, from the same attachSummaries() call -- the
+                     // LLM's veto against the CS/AI-Systems-LPNU audience
+                     // rubric (see scoring-and-highlighting.md). Fail-opens
+                     // to true (never silently vetoed) on a call failure or
+                     // a per-item response that omitted it. `relevant:
+                     // false` is persisted like everything else, but
+                     // pipeline.js filters it out before Notion/Discord
+                     // ever see it.
+  relevanceScore     // number 0-100 or null; only meaningful when
+                     // relevant=true. null means "no LLM opinion" (outage,
+                     // or omitted for this item) -- lib/scoring.js's
+                     // finalScore() falls back to the heuristic score alone
+                     // in that case, never a fabricated average.
+  relevanceReason    // short string or null; the LLM's own explanation.
+                     // Persisted for manual auditing only -- never
+                     // surfaced in Notion or Discord.
   hook      // only if a future Notion-read-back step attaches it (doesn't exist yet)
 }
 ```

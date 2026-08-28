@@ -1,5 +1,5 @@
 import { Client } from '@notionhq/client';
-import { scoreOpportunity } from './scoring.js';
+import { finalScore } from './scoring.js';
 import { hasMoneyPrize } from './normalize.js';
 
 const MAX_TEXT_LENGTH = 1900;
@@ -26,8 +26,9 @@ function buildDeadlineProperty(opportunity) {
 
 /**
  * Maps our Opportunity shape onto the "Opportunities Feed" database's
- * properties, including our own heuristic Score (see lib/scoring.js). A
- * separately scheduled agent may revise the Score later -- this just
+ * properties, including our own Score (see lib/scoring.js's finalScore --
+ * the heuristic blended with the LLM's relevanceScore, when it gave one).
+ * A separately scheduled agent may revise the Score later -- this just
  * makes sure it's never left blank.
  */
 export function toFeedProperties(opportunity) {
@@ -35,7 +36,7 @@ export function toFeedProperties(opportunity) {
     Name: { title: richText(opportunity.title || 'Untitled') },
     Kind: { select: { name: opportunity.kind } },
     Source: { select: { name: opportunity.sourceId } },
-    Score: { number: scoreOpportunity(opportunity) },
+    Score: { number: finalScore(opportunity) },
     // Always set (true or false), not omitted like the optional fields
     // below -- a checkbox has no meaningful "unset" state the way a blank
     // rich-text field does, so leaving it out would just default to an

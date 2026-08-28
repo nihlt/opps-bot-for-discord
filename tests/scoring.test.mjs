@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
-import { scoreOpportunity } from '../src/lib/scoring.js';
+import { scoreOpportunity, finalScore } from '../src/lib/scoring.js';
 
 describe('scoreOpportunity', () => {
   it('scores a fellowship highest among event kinds', () => {
@@ -77,5 +77,32 @@ describe('scoreOpportunity', () => {
     const scores = batch.map(scoreOpportunity).sort((a, b) => b - a);
     const top10pct = Math.ceil(batch.length * 0.1);
     assert.ok(scores[top10pct - 1] >= 60, `expected top decile to score >= 60, got ${scores[top10pct - 1]}`);
+  });
+});
+
+describe('finalScore', () => {
+  it('equals scoreOpportunity when there is no relevanceScore (no LLM opinion)', () => {
+    const opportunity = { kind: 'event', title: 'AI Hackathon', tags: [], location: 'Львів' };
+    assert.equal(finalScore(opportunity), scoreOpportunity(opportunity));
+  });
+
+  it('equals scoreOpportunity when relevanceScore is explicitly null', () => {
+    const opportunity = { kind: 'event', title: 'AI Hackathon', tags: [], location: 'Львів', relevanceScore: null };
+    assert.equal(finalScore(opportunity), scoreOpportunity(opportunity));
+  });
+
+  it('averages the heuristic score with relevanceScore, rounded, when one is given', () => {
+    const opportunity = { kind: 'event', title: 'AI Meetup', tags: [], location: 'Kyiv', relevanceScore: 90 };
+    const heuristic = scoreOpportunity(opportunity);
+    assert.equal(finalScore(opportunity), Math.round((heuristic + 90) / 2));
+  });
+
+  it('never fabricates an average from a fabricated mid-scale number -- missing means heuristic alone', () => {
+    const withScore = finalScore({ kind: 'event', title: 'AI Meetup', tags: [], location: 'Kyiv', relevanceScore: 0 });
+    const withoutScore = finalScore({ kind: 'event', title: 'AI Meetup', tags: [], location: 'Kyiv' });
+    // relevanceScore: 0 is a real (low) opinion and must actually blend in,
+    // not be treated the same as "no opinion" -- confirms `== null` (not a
+    // falsy check) is what gates the fallback.
+    assert.notEqual(withScore, withoutScore);
   });
 });
