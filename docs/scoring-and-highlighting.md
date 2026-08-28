@@ -6,9 +6,10 @@ Two separate, deliberately decoupled mechanisms:
    heuristic, no LLM involved. Computed for every opportunity, always, with
    no dependency on a batch or population.
 2. **`percentileColor()` / `percentileOf()`** (`src/discord/score-color.js`)
-   — maps a score to an accent color / a "better than X%" figure, but only
-   *relative to a population of scores you pass in*. This is population-
-   dependent by design; see "the scoringPopulation trap" below.
+   — maps a score to an accent color, but only *relative to a population
+   of scores you pass in*. This is population-dependent by design; see
+   "the scoringPopulation trap" below. (`percentileOf()` used to also
+   drive a visible "better than 0.NN" text label — removed, see below.)
 
 ## The scoring rubric
 
@@ -105,10 +106,15 @@ score is at-or-above. `percentileColor()` bands that into:
   theme; this was an actual back-and-forth during design).
 - **Top 10%**: a flat muted gold, `#C9A86B`.
 
-`digest.js`'s per-item "better than 0.NN" label uses the same
-`percentileOf()` number, but swaps to the fixed phrase **"one of the best"**
-for percentile ≥ 0.9 — a bare "better than 1.00" for the top item in a
-batch is mathematically correct but reads as a bug.
+`digest.js` used to also print a "better than 0.NN" (or, at the top
+decile, "one of the best") text label per item, using this same
+`percentileOf()` number. **Removed** — after the same live example that
+motivated the English-level fix below, seeing the raw score/percentile
+repeated identically across visibly different jobs read as noise, not
+useful signal, so the number itself is gone from the visible text
+entirely. `percentileOf()`/`percentileColor()` still drive everything
+else (accent color, sort order, which 3 items make a category's main
+message) — only the printed number went away.
 
 ### The `scoringPopulation` trap
 

@@ -214,7 +214,7 @@ describe('postDigest', () => {
     assert.ok(!payload.includes('Generic promotional filler'));
   });
 
-  it('shows a location · from domain · score · better-than meta line under each item', async () => {
+  it('shows a location · from domain meta line under each item, with no score/percentile text', async () => {
     const { channel, sentMessages } = makeFakeChannel();
     const scoringPopulation = [opp('meta', { location: 'Lviv' }), opp('lower'), opp('lower2')];
     await postDigest(
@@ -223,16 +223,23 @@ describe('postDigest', () => {
       { scoringPopulation },
     );
     const payload = JSON.stringify(sentMessages[0].payload.components);
-    assert.ok(payload.includes('Lviv · from dou.ua · score'));
-    assert.ok(/better than 0\.\d\d|one of the best/.test(payload));
+    assert.ok(payload.includes('Lviv · from dou.ua'));
+    // The raw score/percentile text was removed per explicit user request
+    // (read as noise, not useful signal) -- only the accent color remains.
+    assert.ok(!/\bscore \d/.test(payload));
+    assert.ok(!/better than 0\.\d\d/.test(payload));
+    assert.ok(!payload.includes('one of the best'));
   });
 
   it('omits the "from domain" segment when the link is missing or unparseable', async () => {
     const { channel, sentMessages } = makeFakeChannel();
     await postDigest(channel, [{ ...opp('nolink'), location: 'Lviv', link: null }]);
-    const payload = JSON.stringify(sentMessages[0].payload.components);
-    assert.ok(payload.includes('Lviv · score'));
-    assert.ok(!payload.includes('from '));
+    const payload = JSON.parse(JSON.stringify(sentMessages[0].payload.components));
+    // No link -> no Section/button, just a plain text block (see
+    // itemContainer's link-vs-no-link branch): components[1] is the body
+    // TextDisplay directly, not nested inside a Section.
+    const metaLine = payload[1].components[1].content;
+    assert.equal(metaLine, 'Lviv');
   });
 
   it('puts a blank line between the description and the meta line', async () => {
@@ -244,14 +251,19 @@ describe('postDigest', () => {
     assert.ok(text.includes('A concrete sentence.\n\n'));
   });
 
-  it('says "one of the best" instead of a near-1.00 fraction for a top-decile item', async () => {
+  // No score/percentile text is shown any more (removed per explicit user
+  // request), but the accent color still reflects the percentile band --
+  // these two check that wiring stayed intact via the color, not text.
+  const GOLD_ACCENT = 0xc9a86b; // src/discord/score-color.js's GOLD
+
+  it('gives a top-decile item the gold accent color', async () => {
     const { channel, sentMessages } = makeFakeChannel();
     const fellowship = opp('Fellowship', { tags: ['Fellowship'] });
     const scoringPopulation = [fellowship, ...Array.from({ length: 9 }, (_, i) => opp(`filler-${i}`))];
     await postDigest(channel, [fellowship], { scoringPopulation });
-    const payload = JSON.stringify(sentMessages[0].payload.components);
-    assert.ok(payload.includes('one of the best'));
-    assert.ok(!payload.includes('better than 1.00'));
+    const payload = JSON.parse(JSON.stringify(sentMessages[0].payload.components));
+    const itemContainerJson = payload[1]; // payload[0] is the category header
+    assert.equal(itemContainerJson.accent_color, GOLD_ACCENT);
   });
 
   it('ranks against the full scoringPopulation, not just the posted batch', async () => {
@@ -264,8 +276,9 @@ describe('postDigest', () => {
       ...Array.from({ length: 9 }, (_, i) => opp(`Fellowship ${i}`, { tags: ['Fellowship'] })),
     ];
     await postDigest(channel, [mediocre, opp('other-mediocre')], { scoringPopulation });
-    const payload = JSON.stringify(sentMessages[0].payload.components);
-    // Ranked against 9 fellowships it's clearly bottom-tier, not "one of the best".
-    assert.ok(!payload.includes('one of the best'));
+    const payload = JSON.parse(JSON.stringify(sentMessages[0].payload.components));
+    // Ranked against 9 fellowships both are clearly bottom-tier -- neither should be gold.
+    const goldCount = payload.filter((component) => component.accent_color === GOLD_ACCENT).length;
+    assert.equal(goldCount, 0);
   });
 });

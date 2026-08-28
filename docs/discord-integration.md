@@ -119,8 +119,8 @@ added.
 
 If Gemini summarization fails or hasn't run, `opportunity.summary` and
 `opportunity.hook` are both absent/null, and `digest.js` simply omits the
-description line — title, link button, and the location/score/percentile
-meta line still render. This was an explicit design requirement ("не
+description line — title, link button, and the location/domain meta line
+still render. This was an explicit design requirement ("не
 виводити той useless опис-текст а просто прибрати його" — don't show that
 useless description text, just remove it), not an accident of how the code
 happens to behave. See [resilience.md](./resilience.md) for the full list
@@ -137,10 +137,20 @@ One message per non-empty category:
   [Section, or a plain text block if opportunity.link is missing]
     {summary or hook, truncated to 400 chars, or omitted entirely}
 
-    {location} · from {domain} · score {N} · {"better than 0.NN" or "one of the best"}
+    {location} · from {domain}
     [Button: "Відкрити" -> opportunity.link]
 ... (up to 3 items per category, small dividers between them)
 ```
+
+The raw score and percentile ("score 60 · better than 0.73") used to be
+printed on this meta line too. Removed per explicit user request after it
+surfaced a real scoring problem live: several djinni jobs showed the
+*exact same* score/percentile despite being different postings (see
+[scoring-and-highlighting.md](./scoring-and-highlighting.md#job-scores-used-to-collide-constantly--fixed-by-adding-real-signal-not-by-faking-one)) —
+seeing identical numbers repeated read as noise, not useful signal. The
+underlying score still drives everything else (sort order, the accent
+color band, which 3 items make a category's main message) — only the
+visible text is gone.
 
 `{domain}` is `opportunity.link`'s hostname (`www.` stripped), omitted if
 the link is missing or unparseable. There's a blank line between the

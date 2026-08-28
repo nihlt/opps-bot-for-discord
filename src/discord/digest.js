@@ -11,7 +11,7 @@ import {
 } from 'discord.js';
 import { scoreOpportunity, isHackathon } from '../lib/scoring.js';
 import { isFellowship } from '../lib/normalize.js';
-import { percentileColor, percentileOf } from './score-color.js';
+import { percentileColor } from './score-color.js';
 
 const MAIN_MESSAGE_LIMIT = 3;
 const THREAD_CHUNK_SIZE = 5;
@@ -67,18 +67,12 @@ function sourceDomain(link) {
   }
 }
 
-const TOP_PERCENTILE_LABEL = 0.9;
-
-function percentileLabel(percentile) {
-  // A "better than 1.00" is a real number but reads as a bug -- past the
-  // top-decile cutoff (the same one that drives the gold accent), just
-  // say it's one of the best rather than showing a number pinned near 1.
-  return percentile >= TOP_PERCENTILE_LABEL ? 'one of the best' : `better than ${percentile.toFixed(2)}`;
-}
-
 function itemContainer(opportunity, allScores) {
   const score = scoreOpportunity(opportunity);
-  const percentile = percentileOf(score, allScores);
+  // The accent color still reflects the percentile band (gold top-10%,
+  // gray ramp, none for the bottom half) -- only the visible "score N ·
+  // better than 0.NN" text is gone, per explicit user request that the
+  // raw number/percentile reads as noise rather than useful signal.
   const color = percentileColor(score, allScores);
   // `summary` (our own Gemini-generated one-liner) wins over `hook` (the
   // scheduled Claude agent's future field in Notion). Deliberately no
@@ -86,7 +80,7 @@ function itemContainer(opportunity, allScores) {
   // from the source site, not what the reader actually gets, so if
   // summarization hasn't run or failed, showing nothing beats showing that.
   const description = truncate(opportunity.summary || opportunity.hook);
-  const metaLine = [opportunity.location, sourceDomain(opportunity.link) && `from ${sourceDomain(opportunity.link)}`, `score ${score}`, percentileLabel(percentile)]
+  const metaLine = [opportunity.location, sourceDomain(opportunity.link) && `from ${sourceDomain(opportunity.link)}`]
     .filter(Boolean)
     .join(' · ');
   // Blank line between the description and the meta line, not just a
