@@ -20,12 +20,13 @@ audience specifically, not a general "how good is this opportunity" score.
 
 - **Base, by category** (mutually exclusive, checked in this order):
   fellowship/stipend (`isFellowship()`, checks title+tags only — see below)
-  → 65. Internship tag → 55. Hackathon/competition (`isHackathon()`, by
-  `sourceId` or a title/tag keyword match — lives in `lib/normalize.js`,
-  imported here, and reused by `discord/digest.js`'s category grouping
-  and by the payment-policy filter, see
-  [discord-integration.md](./discord-integration.md), so none of the
-  three can quietly disagree about what counts as a hackathon)
+  → 65. Internship tag → 55. Hackathon/competition (`isHackathon()`, by a
+  hackathon-specific `sourceId` — `dou-hackathon`/`kaggle` only — or a
+  title keyword match, tags deliberately not consulted — see below —
+  lives in `lib/normalize.js`, imported here, and reused by
+  `discord/digest.js`'s category grouping and by the payment-policy
+  filter, see [discord-integration.md](./discord-integration.md), so none
+  of the three can quietly disagree about what counts as a hackathon)
   → 55 (bumped from an initial 45 per feedback — "hackathons and
   competitions deserve the same tier as internships"). Generic event → 25.
   `kind: 'job'` is scored on a *different* axis entirely: base 30, plus a
@@ -84,6 +85,34 @@ Fellowships name themselves as such in the title; scanning free-text
 descriptions for a stray keyword is too loose. If you're tempted to widen
 this back to the description, don't, unless you also add a stronger
 qualifier than a bare "grant"/"грант" substring match.
+
+### `isHackathon()` only checks title + dedicated sourceIds, not tags or `dou-competition`
+
+A second real bug in the same family as `isFellowship()`'s above, found
+live: a Lviv charity run (OBRIO × Chumaky, `sourceId: dou-competition`)
+showed up in the digest as a **Hackathon**, with an inflated score, *and*
+a false `· $` marker. Root cause was `hackathonSources` blanket-trusting
+`dou-competition` and `hackathonTagPattern` scanning `tags` as well as
+title: DOU's "змагання" (competitions) calendar tags **any** competitive
+event — sports races included, not just coding ones — and
+`src/sources/dou-calendar.js` mechanically injects that tag onto every
+item it scrapes from that page, regardless of what the event actually
+is. The charity run's own "participate for a 500 грн donation" line then
+survived `applyEventPaymentPolicy()` (which had just been made to exempt
+`isHackathon()` items, see below) and got read by `hasMoneyPrize()` as
+prize money.
+
+Fixed by narrowing `isHackathon()` to: `dou-hackathon`/`kaggle` by
+sourceId (calendars/platforms that really are hackathon-specific) OR the
+item's own **title** matching the keyword pattern — tags are no longer
+consulted at all, and `dou-competition` is no longer a trusted sourceId.
+Same lesson as `isFellowship()`: a mechanically-attached label (whether a
+tag or a source's own categorization) is not the same as the event
+describing itself as a hackathon. The cost is a few genuine
+`dou-competition` coding competitions now falling through to the generic
+"Events" tier if their title doesn't say "hackathon"/"змагання"/
+"competition" — accepted, since a false "this is a hackathon that pays
+prize money" is worse than an occasional missed real one.
 
 ### The `Payable` checkbox / the `· $` marker
 

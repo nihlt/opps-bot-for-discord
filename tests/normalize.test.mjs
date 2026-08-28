@@ -121,14 +121,22 @@ describe('isFellowship', () => {
 });
 
 describe('isHackathon', () => {
-  it('matches by dedicated sourceId', () => {
+  it('matches by dedicated sourceId (dou-hackathon, kaggle -- hackathon-specific calendars/platforms)', () => {
     assert.equal(isHackathon({ title: 'Something', tags: [], sourceId: 'dou-hackathon' }), true);
     assert.equal(isHackathon({ title: 'Something', tags: [], sourceId: 'kaggle' }), true);
   });
 
-  it('matches by title/tag keyword, including the literal word "hackathon"', () => {
+  it('does NOT trust dou-competition by sourceId -- that DOU calendar tag is a broad "competitions" bucket, not hackathon-specific', () => {
+    assert.equal(isHackathon({ title: 'Charity Run у Львові', tags: ['змагання'], sourceId: 'dou-competition' }), false);
+  });
+
+  it('matches by title keyword, including the literal word "hackathon"', () => {
     assert.equal(isHackathon({ title: 'Global AI Hackathon', tags: [] }), true);
-    assert.equal(isHackathon({ title: 'Спринт', tags: ['змагання'] }), true);
+    assert.equal(isHackathon({ title: 'Весняне змагання з програмування', tags: [] }), true);
+  });
+
+  it('does not match on a tag alone -- only the title is trusted, since tags can be mechanically source-injected regardless of content', () => {
+    assert.equal(isHackathon({ title: 'Charity Run у Львові', tags: ['змагання', 'competition', 'hackathon'] }), false);
   });
 
   it('does not match an unrelated event', () => {
@@ -161,6 +169,22 @@ describe('hasMoneyPrize', () => {
     const opp = { kind: 'job', sourceId: 'djinni', title: 'AI Fellowship Coordinator', tags: [], payment: '$3000/month', description: '' };
     assert.equal(hasMoneyPrize(opp), false);
   });
+
+  it('is false for a dou-competition-sourced charity run with a registration fee, even though it carries a "змагання" tag', () => {
+    // Regression case: DOU's "змагання" calendar tags ANY competition,
+    // sports races included -- a real charity run got misclassified as a
+    // hackathon (source + injected tag), which then let its registration
+    // fee survive applyEventPaymentPolicy and get flagged as prize money.
+    const opp = {
+      kind: 'event',
+      sourceId: 'dou-competition',
+      title: 'Charity Run у Львові OBRIO × Chumaky × Молодвіж',
+      tags: ['змагання'],
+      payment: '300 грн',
+      description: '',
+    };
+    assert.equal(hasMoneyPrize(opp), false);
+  });
 });
 
 describe('applyEventPaymentPolicy', () => {
@@ -190,11 +214,23 @@ describe('applyEventPaymentPolicy', () => {
     assert.equal(result.payment, '$50,000');
   });
 
-  it('keeps a hackathon (any source) and preserves its prize amount, same as a fellowship', () => {
+  it('keeps a hackathon (dou-hackathon/kaggle, or title-confirmed) and preserves its prize amount, same as a fellowship', () => {
     const opp = { kind: 'event', sourceId: 'dou-hackathon', title: 'AI Hackathon', tags: [], description: '', payment: '500 000 грн' };
     const result = applyEventPaymentPolicy(opp);
     assert.notEqual(result, null);
     assert.equal(result.payment, '500 000 грн');
+  });
+
+  it('drops a dou-competition-sourced charity run with a registration fee -- not hackathon-exempt just because of its source/tag', () => {
+    const opp = {
+      kind: 'event',
+      sourceId: 'dou-competition',
+      title: 'Charity Run у Львові OBRIO × Chumaky × Молодвіж',
+      tags: ['змагання'],
+      description: '',
+      payment: '300 грн',
+    };
+    assert.equal(applyEventPaymentPolicy(opp), null);
   });
 
   it('leaves job listings untouched', () => {

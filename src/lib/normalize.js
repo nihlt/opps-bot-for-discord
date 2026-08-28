@@ -199,7 +199,8 @@ const freeIndicatorPattern = /безкоштов|безоплат|\bfree\b/i;
 // figure here" test, not two that could quietly disagree.
 export const currencyAmountPattern = /(?:[$€£¥₴]\s?\d[\d,.]*|\d[\d,.]*\s?(?:usd|eur|gbp|uah|грн))/i;
 const fellowshipPattern = /fellowship|стипенді\p{L}*|стипенд\p{L}*|grant|грант\p{L}*/iu;
-const hackathonSources = new Set(['dou-hackathon', 'dou-competition', 'kaggle']);
+// dou-competition deliberately excluded -- see isHackathon()'s comment.
+const hackathonSources = new Set(['dou-hackathon', 'kaggle']);
 const hackathonTagPattern = /хакатон|змагання|competition|hackathon/i;
 
 /**
@@ -216,17 +217,29 @@ export function isFellowship(opportunity) {
 
 /**
  * True when the opportunity is a hackathon/competition -- either scraped
- * from a source dedicated to those (dou-hackathon, dou-competition,
- * kaggle) or self-described as one in its own title/tags. Lives here
- * (not in lib/scoring.js, which imports it) so applyEventPaymentPolicy
- * below can use it too without a circular import -- one definition, used
- * by the score bump, digest.js's category grouping, and the payment
- * policy, so none of the three can quietly disagree about what counts as
- * a hackathon.
+ * from a source dedicated *specifically* to those (dou-hackathon, kaggle)
+ * or self-described as one in its own TITLE. Lives here (not in
+ * lib/scoring.js, which imports it) so applyEventPaymentPolicy below can
+ * use it too without a circular import -- one definition, used by the
+ * score bump, digest.js's category grouping, and the payment policy, so
+ * none of the three can quietly disagree about what counts as a
+ * hackathon.
+ *
+ * Deliberately checks the title ONLY, not tags, and deliberately excludes
+ * `dou-competition` from the trusted-source set (`dou-hackathon` and
+ * `kaggle` are, since those calendars/platforms are hackathon-specific).
+ * A real case that motivated this: a Lviv charity run scraped from DOU's
+ * "змагання" (competitions) calendar page got tagged "змагання" purely
+ * because of *which DOU calendar tag it was pulled from* -- both the
+ * sourceId and the mechanically-injected tag said "hackathon," even
+ * though the event itself was neither a hackathon nor paying out prize
+ * money. DOU's "змагання" tag is a broad "competitions" bucket (sports
+ * races included), not a coding/hackathon-specific signal, so it can't be
+ * trusted via sourceId or tags -- only an event's own title actually
+ * calling itself a hackathon/competition is trustworthy.
  */
 export function isHackathon(opportunity) {
-  const titleAndTags = [opportunity.title || '', (opportunity.tags || []).join(' ')].join(' ');
-  return hackathonSources.has(opportunity.sourceId) || hackathonTagPattern.test(titleAndTags);
+  return hackathonSources.has(opportunity.sourceId) || hackathonTagPattern.test(opportunity.title || '');
 }
 
 /**

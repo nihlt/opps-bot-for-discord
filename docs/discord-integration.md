@@ -49,9 +49,12 @@ content that day.
 
 1. `kind === 'job'` → **Jobs** (unambiguous, checked first).
 2. `isFellowship()` (title/tags) → **Fellowship Programs**.
-3. `isHackathon()` (`src/lib/scoring.js` — by `sourceId` or a title/tag
-   keyword match; exported specifically so this and the score bump can
-   never disagree) → **Hackathons**.
+3. `isHackathon()` (`src/lib/normalize.js` — by a hackathon-specific
+   `sourceId` (`dou-hackathon`/`kaggle` only) or a title keyword match;
+   tags deliberately not consulted, see
+   [scoring-and-highlighting.md](./scoring-and-highlighting.md#ishackathon-only-checks-title--dedicated-sourceids-not-tags-or-dou-competition) —
+   exported specifically so this, the score bump, and the payment policy
+   can never disagree) → **Hackathons**.
 4. `location` matches `/online|онлайн/i` → **Online Events**.
 5. Everything else → **Events**.
 

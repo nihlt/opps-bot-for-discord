@@ -19,9 +19,19 @@ describe('categorizeOpportunity', () => {
     assert.equal(categorizeOpportunity(opp('Something', { sourceId: 'dou-hackathon' })), 'Hackathons');
   });
 
-  it('puts a hackathon (by title/tag pattern) into Hackathons', () => {
+  it('puts a hackathon (by title keyword) into Hackathons', () => {
     assert.equal(categorizeOpportunity(opp('Global AI Hackathon')), 'Hackathons');
-    assert.equal(categorizeOpportunity(opp('Спринт', { tags: ['змагання'] })), 'Hackathons');
+    assert.equal(categorizeOpportunity(opp('Весняне змагання з програмування')), 'Hackathons');
+  });
+
+  it('does not put a dou-competition-sourced item into Hackathons just from its source or tag', () => {
+    // Regression: DOU's "змагання" calendar tags any competition, sports
+    // races included -- only the item's own title is trusted (see
+    // isHackathon() in lib/normalize.js).
+    assert.equal(
+      categorizeOpportunity(opp('Charity Run у Львові', { sourceId: 'dou-competition', tags: ['змагання'] })),
+      'Events',
+    );
   });
 
   it('puts an online, non-fellowship, non-hackathon event into Online Events', () => {
