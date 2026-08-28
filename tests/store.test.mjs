@@ -30,7 +30,7 @@ describe('store', () => {
     await withTempStore(async (filePath) => {
       const events = [fakeEvent('a'), fakeEvent('b'), fakeEvent('c')];
       const written = await appendNewEvents(events, filePath);
-      assert.deepEqual(written, events);
+      assert.deepEqual(written.map((e) => e.id).sort(), ['a', 'b', 'c']);
 
       const stored = await loadEvents(filePath);
       assert.equal(stored.length, 3);
@@ -43,11 +43,30 @@ describe('store', () => {
       await appendNewEvents([fakeEvent('a'), fakeEvent('b')], filePath);
 
       const secondWrite = await appendNewEvents([fakeEvent('a'), fakeEvent('c')], filePath);
-      assert.deepEqual(secondWrite, [fakeEvent('c')]);
+      assert.deepEqual(secondWrite.map((e) => e.id), ['c']);
 
       const stored = await loadEvents(filePath);
       assert.equal(stored.length, 3);
       assert.deepEqual(stored.map((e) => e.id).sort(), ['a', 'b', 'c']);
+    });
+  });
+
+  it('stamps firstSeenAt on a new event that does not already have one', async () => {
+    await withTempStore(async (filePath) => {
+      const [written] = await appendNewEvents([fakeEvent('a')], filePath);
+      assert.ok(written.firstSeenAt, 'expected firstSeenAt to be stamped');
+      assert.ok(!Number.isNaN(Date.parse(written.firstSeenAt)));
+
+      const [stored] = await loadEvents(filePath);
+      assert.equal(stored.firstSeenAt, written.firstSeenAt);
+    });
+  });
+
+  it('preserves an existing firstSeenAt (e.g. from the notion source) instead of overwriting it', async () => {
+    await withTempStore(async (filePath) => {
+      const event = { ...fakeEvent('a'), firstSeenAt: '2020-01-01T00:00:00.000Z' };
+      const [written] = await appendNewEvents([event], filePath);
+      assert.equal(written.firstSeenAt, '2020-01-01T00:00:00.000Z');
     });
   });
 

@@ -87,7 +87,11 @@ by side.
 
 The user's plan is for a **separately-scheduled Claude agent** (their own
 `/schedule`d cloud session, entirely outside this codebase) to search the
-web and add new candidate opportunities into "Opportunities." This is
+web and add new candidate opportunities into "Opportunities." The actual
+prompt text for that agent is saved in
+[daily-search-prompt.md](./daily-search-prompt.md) — not run by this
+repo, but kept here since its field conventions (`Type`, `Location`) feed
+directly into this pipeline's own scoring/categorization. This is
 **not an API call this repo makes** — there is no code here that triggers
 or depends on that agent directly. It's a scheduled *prompt*, run by a
 different Claude session on its own cadence, whose only visible effect on

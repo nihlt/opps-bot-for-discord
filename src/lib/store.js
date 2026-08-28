@@ -27,6 +27,12 @@ export async function loadEvents(filePath = defaultEventsPath) {
  * Rewrites the whole file atomically (temp file + rename) so a crash
  * mid-write never leaves a truncated/corrupt events.jsonl behind.
  * Returns the subset of `opportunities` that were actually new.
+ *
+ * Most source modules never set `firstSeenAt` (only src/sources/notion.js
+ * does, from Notion's own "Date found" created_time) -- this is the one
+ * place every source's items pass through exactly once, on the run they
+ * first get persisted, so it's the natural place to stamp "the date we
+ * found this" for everyone else instead of leaving it null forever.
  */
 export async function appendNewEvents(opportunities, filePath = defaultEventsPath) {
   const existing = await loadEvents(filePath);
@@ -36,7 +42,7 @@ export async function appendNewEvents(opportunities, filePath = defaultEventsPat
   for (const opportunity of opportunities) {
     if (seenIds.has(opportunity.id)) continue;
     seenIds.add(opportunity.id);
-    newEvents.push(opportunity);
+    newEvents.push(opportunity.firstSeenAt ? opportunity : { ...opportunity, firstSeenAt: new Date().toISOString() });
   }
 
   if (newEvents.length === 0) return [];

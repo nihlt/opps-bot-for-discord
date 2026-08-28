@@ -67,7 +67,11 @@ coincidental ones.
 When a score still ties, ordering isn't left to incidental array order:
 `discord/digest.js`'s `sortByScoreDesc()` breaks ties by earliest
 `firstSeenAt` first, then title, so equal-score items land in a
-deliberate, explainable order.
+deliberate, explainable order. This tie-break only became meaningful for
+most sources once `lib/store.js`'s `appendNewEvents()` started stamping
+`firstSeenAt` on every newly-persisted item — before that fix, only the
+`notion` source ever had a real value there, so the tie-break silently
+fell through to title-only ordering for everything else.
 
 ### `isFellowship()` only checks title + tags, not description
 

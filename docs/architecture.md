@@ -206,7 +206,13 @@ Every source module returns objects matching this shape (frozen by
   id, sourceId, kind ('event'|'job'), title, link,
   date, dateNormalized, dateEndNormalized, datePrecision,
   location, payment, tags, description, company, calendar,
-  firstSeenAt,
+  firstSeenAt,   // null from normalizeOpportunity() itself for every source
+                 // except sources/notion.js (Notion's own "Date found"
+                 // created_time); lib/store.js's appendNewEvents() stamps
+                 // it with the current time at persist-time for anything
+                 // that reaches it still null, so every item ends up with
+                 // a real "date we found this" once stored -- see
+                 // scoring-and-highlighting.md for what reads it
   // added later in the pipeline, not by normalizeOpportunity itself:
   summary   // lib/summarize.js's attachSummaries() -- always called for
             // new events; null if Vertex AI failed/hasn't run for this item

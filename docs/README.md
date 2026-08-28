@@ -12,6 +12,7 @@ what you're about to touch.
 | [sources.md](./sources.md) | Each scraper's contract, quirks, and known failure modes |
 | [scoring-and-highlighting.md](./scoring-and-highlighting.md) | The 0-100 heuristic score, percentile color bands, calibration |
 | [notion-integration.md](./notion-integration.md) | The two Notion databases, why two, tradeoffs |
+| [daily-search-prompt.md](./daily-search-prompt.md) | The external scheduled Claude agent's actual prompt — not this repo's code, but its output feeds directly into `sources/notion.js` |
 | [discord-integration.md](./discord-integration.md) | The Components V2 digest format, and the alerting DM system |
 | [resilience.md](./resilience.md) | What actually happens when each dependency fails |
 | [assumptions-and-caveats.md](./assumptions-and-caveats.md) | Provisional/known-suboptimal decisions, named honestly |
