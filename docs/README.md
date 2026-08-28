@@ -35,12 +35,14 @@ itself runs once and exits per invocation; GitHub Actions
 (`.github/workflows/daily-digest.yml`) is what triggers that daily, not an
 in-repo scheduler.
 
-**What's still genuinely missing, and it's not code**:
-`DISCORD_CHANNEL_ID` still needs to point at a real production channel
-(currently the test channel used for development) — see
-[architecture.md](./architecture.md#whats-actually-wired-in). If you're an
-agent picking this up, don't assume that gap is code-shaped; it's a manual
-Discord-side step.
+**Test vs. production channel**: `DISCORD_CHANNEL_ID` now holds the real
+production channel; `TEST_DISCORD_CHANNEL_ID` holds a separate dev/test
+channel. `src/discord/target.js`'s `resolveChannelTarget()` decides which
+one an invocation actually posts to, and **defaults to test** — reaching
+prod requires explicitly setting `DISCORD_TARGET=prod`, which only
+`.github/workflows/daily-digest.yml`'s scheduled step does. A local run
+can't post to prod by accident. See
+[discord-integration.md](./discord-integration.md#test-vs-production-channel).
 
 ## Why this folder exists
 

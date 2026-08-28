@@ -82,15 +82,21 @@ failures" logic; every scheduled trigger is a fresh, independent attempt.
 ## The channel the bot posts to gets deleted
 
 `client.channels.fetch(channelId)` (inside `postDigest()`'s caller in
-`pipeline.js`) throws when the channel no longer exists. Caught the same
-way as any other digest-post failure — logged, pushed into `issues`, DMed
-to admins at the end of that run. **Every future run will fail
-identically** until `DISCORD_CHANNEL_ID` is updated (in the GitHub Actions
-secret, and in local `.env` for dev), but at least each run's failure is
-now surfaced via the admin DM rather than being silent — no self-check at
-startup verifies the channel still exists or that the bot still has
-`SEND_MESSAGES`/`VIEW_CHANNEL` before attempting to post, it's discovered
-by the post itself failing.
+`pipeline.js`, or `replay-digest.js`) throws when the channel no longer
+exists. Caught the same way as any other digest-post failure — logged,
+pushed into `issues`, DMed to admins at the end of that run. **Every
+future run against that target will fail identically** until the relevant
+var is updated (`DISCORD_CHANNEL_ID` for prod — the GitHub Actions secret,
+since that's the only place `DISCORD_TARGET=prod` is set;
+`TEST_DISCORD_CHANNEL_ID` for a local dev run, in `.env` — see
+[discord-integration.md](./discord-integration.md#test-vs-production-channel)),
+but at least each run's failure is now surfaced via the admin DM rather
+than being silent — no self-check at startup verifies the channel still
+exists or that the bot still has `SEND_MESSAGES`/`VIEW_CHANNEL` before
+attempting to post, it's discovered by the post itself failing. A local
+dev run can't hit this for the *prod* channel at all unless
+`DISCORD_TARGET=prod` was set deliberately — see
+`discord/target.js`.
 
 ## The server's role/permission policy changes and the bot loses access
 

@@ -5,6 +5,7 @@ import { attachSummaries } from './lib/summarize.js';
 import { writeToFeed } from './lib/notion-feed.js';
 import { postDigest } from './discord/digest.js';
 import { notifyAdmins } from './discord/alerts.js';
+import { resolveChannelTarget } from './discord/target.js';
 import { recordUsage, loadUsage, summarizeUsage, formatUsageReport } from './lib/llm-usage.js';
 
 const FIRST_RUN_POST_CAP = 15;
@@ -151,10 +152,11 @@ export async function runPipeline(
       : relevantNewEvents;
 
   let digestMessage = null;
+  let digestTarget = null;
   if (toPost.length > 0) {
     try {
-      const channelId = process.env.DISCORD_CHANNEL_ID;
-      if (!channelId) throw new Error('DISCORD_CHANNEL_ID is not set');
+      const { channelId, target } = resolveChannelTarget();
+      digestTarget = target;
       const channel = await client.channels.fetch(channelId);
       digestMessage = await postDigest(channel, toPost, { scoringPopulation: catalogue });
     } catch (error) {
@@ -165,6 +167,7 @@ export async function runPipeline(
 
   console.log(
     `[pipeline] scraped=${opportunities.length} new=${newEvents.length} posted=${digestMessage ? 'yes' : 'no'}` +
+      (digestTarget ? ` target=${digestTarget}` : '') +
       ` notionFeedWritten=${feedResult.written}` +
       (wasFirstRun ? ' (first run, capped)' : '') +
       (lookbackDays ? ` (lookback=${lookbackDays}d, toPost=${toPost.length})` : '') +
@@ -182,7 +185,16 @@ export async function runPipeline(
   if (issues.length > 0) {
     reportLines.push(`${issues.length} issue(s) this run:`, ...issues.map((issue, i) => `${i + 1}. ${issue}`), '');
   }
-  reportLines.push(formatUsageReport(usageSummary, { model: process.env.GEMINI_MODEL }));
+  reportLines.push(
+    formatUsageReport(usageSummary, {
+      model: process.env.GEMINI_MODEL,
+      // Only labeled when it's NOT prod -- a normal scheduled run's DM
+      // stays exactly as it's always looked; a local full-pipeline run
+      // against the test channel gets an unmistakable label here too, not
+      // just in the console log.
+      context: digestTarget === 'test' ? 'TEST channel' : undefined,
+    }),
+  );
 
   await notifyAdmins(client, reportLines.join('\n'));
 

@@ -72,6 +72,11 @@ jobs:
           # missing/wrong value shows up in a diff instead of silently
           # resolving to an empty string at runtime (a GitHub secret that
           # doesn't exist substitutes '', with no error).
+          # DISCORD_TARGET=prod is what makes this the one place that ever
+          # posts to DISCORD_CHANNEL_ID (prod) -- everywhere else (a local
+          # run with no DISCORD_TARGET set) defaults to the test channel.
+          # See src/discord/target.js.
+          DISCORD_TARGET: prod
           GEMINI_MODEL: gemini-3.7-flash
           GOOGLE_CLOUD_PROJECT: gen-lang-client-0737937428
           GOOGLE_CLOUD_LOCATION: global

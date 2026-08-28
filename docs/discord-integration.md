@@ -135,6 +135,49 @@ useless description text, just remove it), not an accident of how the code
 happens to behave. See [resilience.md](./resilience.md) for the full list
 of what happens when each dependency is down.
 
+## Test vs. production channel
+
+Two channel-id env vars: `DISCORD_CHANNEL_ID` (production) and
+`TEST_DISCORD_CHANNEL_ID` (a separate dev/test channel). `src/discord/
+target.js`'s `resolveChannelTarget(env = process.env)` decides which one
+an invocation actually fetches and posts to:
+
+```js
+export function resolveChannelTarget(env = process.env) {
+  const target = (env.DISCORD_TARGET || 'test').toLowerCase();
+  // ...validates target is "test"/"prod", picks TEST_DISCORD_CHANNEL_ID
+  // or DISCORD_CHANNEL_ID accordingly, throws if that var is unset...
+  return { channelId, target };
+}
+```
+
+**Default is always `test`.** Reaching prod requires deliberately setting
+`DISCORD_TARGET=prod` — the *only* place that happens is
+`.github/workflows/daily-digest.yml`'s scheduled "Run pipeline" step (a
+literal value, same as `GEMINI_MODEL`, not a secret). A local `.env` with
+`DISCORD_TARGET` unset (or set to anything but `prod`) can never post to
+the real production channel, no matter what `DISCORD_CHANNEL_ID` itself is
+set to — this was deliberate, per explicit request, after
+`DISCORD_CHANNEL_ID` got switched from the test channel to the real one:
+local development/testing (`npm start`, `npm run replay-digest`) needed to
+keep landing somewhere safe by default, not require remembering to swap a
+single shared var back and forth.
+
+Both `pipeline.js` (`runPipeline()`) and `replay-digest.js` call
+`resolveChannelTarget()` at the same point they used to read
+`DISCORD_CHANNEL_ID` directly, and both surface which target they used —
+in the console log (`target=test`/`target=prod`) and in the admin-DM
+usage-report title (`formatUsageReport()`'s `context` option gets a
+`TEST`/`TEST channel` label whenever `target !== 'prod'`), so a test-target
+run's output can never be mistaken for a real one, even after the fact in
+DM history.
+
+Considered and declined: an interactive "type YES to confirm" prompt as a
+second layer on top of `DISCORD_TARGET=prod` — the explicit env-var opt-in
+alone was judged sufficient, since it already requires a deliberate,
+readable action (not something you'd set by accident), and it stays usable
+unattended (GitHub Actions is never an interactive terminal).
+
 ## Formatting reference (current digest.js output shape)
 
 Main channel message (always exactly one per run, if there's anything to post):

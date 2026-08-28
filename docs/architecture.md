@@ -237,6 +237,7 @@ than left around unused.
 | Write to Notion Feed (incl. Summary) | `lib/notion-feed.js` |
 | Components V2 digest (global top-3 + category-grouped thread, percentile accent colors) | `discord/digest.js`, `discord/score-color.js` |
 | Admin DM every run (issues if any + LLM cost report) | `discord/alerts.js`, `lib/llm-usage.js` |
+| Test/prod channel selection (default-safe) | `discord/target.js` |
 | Read Score/Hook/Summary back from Notion | *(doesn't exist yet — see [PLAN.md](../PLAN.md))* |
 | Discord forum-channel / x.com sources | *(doesn't exist yet — backlog, see [PLAN.md](../PLAN.md))* |
 
@@ -246,12 +247,12 @@ with ADC/OAuth2 auth (`google-auth-library`, `GOOGLE_APPLICATION_CREDENTIALS`)
 — see [assumptions-and-caveats.md](./assumptions-and-caveats.md) for that
 whole story.
 
-**One gap left, and it's not code**: `DISCORD_CHANNEL_ID` (in the GitHub
-Actions secrets once configured, and still in local `.env`) needs to
-point at a real production channel — right now both point at the test
-channel used for every live demo this session. That's a manual step (invite
-the bot to the real server, copy the channel id), not something to fix by
-writing more code. See [assumptions-and-caveats.md](./assumptions-and-caveats.md)
+`DISCORD_CHANNEL_ID` (prod) and `TEST_DISCORD_CHANNEL_ID` (dev/test) now
+both exist, and `discord/target.js`'s `resolveChannelTarget()` picks
+between them — defaulting to test unless `DISCORD_TARGET=prod` is set
+explicitly (only true in `.github/workflows/daily-digest.yml`'s scheduled
+step). See [discord-integration.md](./discord-integration.md#test-vs-production-channel)
+for the mechanism, and [assumptions-and-caveats.md](./assumptions-and-caveats.md)
 and [resilience.md](./resilience.md) for the remaining honest caveats
 (there's no retry/backoff anywhere, no expiry filtering, etc. — being
 "wired in" and being "hardened" are different things).

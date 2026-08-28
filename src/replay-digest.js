@@ -2,6 +2,7 @@ import 'dotenv/config';
 import { createDiscordClient } from './discord/client.js';
 import { postDigest } from './discord/digest.js';
 import { notifyAdmins } from './discord/alerts.js';
+import { resolveChannelTarget } from './discord/target.js';
 import { loadEvents } from './lib/store.js';
 import { loadUsage, summarizeUsage, formatUsageReport } from './lib/llm-usage.js';
 import {
@@ -28,8 +29,7 @@ async function main() {
   const endArg = process.argv[3];
   if (!startArg) throw new Error('Usage: node src/replay-digest.js <DD.MM|YYYY-MM-DD> [endDD.MM|YYYY-MM-DD]');
 
-  const channelId = process.env.DISCORD_CHANNEL_ID;
-  if (!channelId) throw new Error('DISCORD_CHANNEL_ID is not set');
+  const { channelId, target } = resolveChannelTarget();
 
   const runStartedAt = new Date().toISOString();
   const startKey = parseDayKeyArg(startArg);
@@ -37,7 +37,9 @@ async function main() {
   const days = dayKeyRange(startKey, endKey);
 
   const client = await createDiscordClient();
-  console.log(`[replay] logged in as ${client.user.tag}, replaying ${startKey}..${endKey} (${days.length} day(s))`);
+  console.log(
+    `[replay] logged in as ${client.user.tag}, target=${target}, replaying ${startKey}..${endKey} (${days.length} day(s))`,
+  );
 
   const catalogue = await loadEvents();
   const byDay = groupOpportunitiesByDay(catalogue);
@@ -68,8 +70,9 @@ async function main() {
   // totals (see llm-usage.js), same shape as the normal per-run DM.
   const usageRecords = await loadUsage();
   const usageSummary = summarizeUsage(usageRecords, runStartedAt);
-  const context =
+  const replayLabel =
     startKey === endKey ? `Replay ${dayKeyToShort(startKey)}` : `Replay ${dayKeyToShort(startKey)}–${dayKeyToShort(endKey)}`;
+  const context = target === 'test' ? `TEST · ${replayLabel}` : replayLabel;
 
   const reportLines = [];
   if (issues.length > 0) {
