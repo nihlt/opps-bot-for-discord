@@ -131,6 +131,7 @@ of what happens when each dependency is down.
 One message per non-empty category:
 
 ```
+[TextDisplay] {D MMMM YYYY, e.g. "28 серпня 2026" -- plain text, not bold}
 [TextDisplay] **{CATEGORY NAME, uppercased}**
 [Container, accent = percentileColor(score, scoringPopulation) or none]
   **{title}**{ · $ if hasMoneyPrize(opportunity)}
@@ -141,6 +142,15 @@ One message per non-empty category:
     [Button: "Відкрити" -> opportunity.link]
 ... (up to 3 items per category, small dividers between them)
 ```
+
+The date line is plain text (not bold, unlike the category header) — a
+masthead-style dateline, repeated on every category's own message since
+each is a standalone message a reader might see on its own, out of the
+original posting order. Defaults to `new Date()`; `postDigest(channel,
+opportunities, { date })` accepts an override for tests or a deliberate
+backfill/retrospective run (see
+[architecture.md](./architecture.md#which-items-actually-get-posted-digest_lookback_days)
+for `DIGEST_LOOKBACK_DAYS`, the other lever for a retrospective digest).
 
 The `· $` suffix marks a hackathon/competition/fellowship that states an
 actual money figure — see

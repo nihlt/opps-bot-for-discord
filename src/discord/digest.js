@@ -58,6 +58,23 @@ function categoryHeader(category) {
   return new TextDisplayBuilder().setContent(`**${category.toUpperCase()}**`);
 }
 
+const ukrainianMonthsGenitive = [
+  'січня', 'лютого', 'березня', 'квітня', 'травня', 'червня',
+  'липня', 'серпня', 'вересня', 'жовтня', 'листопада', 'грудня',
+];
+
+function formatDigestDate(date) {
+  return `${date.getDate()} ${ukrainianMonthsGenitive[date.getMonth()]} ${date.getFullYear()}`;
+}
+
+// Plain (not bold), like a masthead dateline -- each category is its own
+// message (see postDigest's doc comment), so without this, a message
+// read on its own (especially later, out of the original posting order)
+// has no visible sense of which day's digest it belongs to.
+function dateHeader(date) {
+  return new TextDisplayBuilder().setContent(formatDigestDate(date));
+}
+
 function sourceDomain(link) {
   if (!link) return null;
   try {
@@ -186,10 +203,15 @@ export function splitForDigestByCategory(opportunities, limit = MAIN_MESSAGE_LIM
  * 3). Defaults to `opportunities` itself only if no broader population is
  * given (e.g. in tests, or a first run with nothing else on record yet).
  *
+ * Each category's message opens with a plain-text date line (`date`,
+ * defaults to now -- overridable for tests/backfills) before its
+ * category header, since each is its own standalone message and would
+ * otherwise carry no visible sense of which day's digest it's from.
+ *
  * Returns the first category's message (there is no longer one single
  * "the" digest message once categories span more than one message).
  */
-export async function postDigest(channel, opportunities, { scoringPopulation = opportunities } = {}) {
+export async function postDigest(channel, opportunities, { scoringPopulation = opportunities, date = new Date() } = {}) {
   if (opportunities.length === 0) return null;
 
   const allScores = scoringPopulation.map(scoreOpportunity);
@@ -202,7 +224,7 @@ export async function postDigest(channel, opportunities, { scoringPopulation = o
   for (const { category, items } of main) {
     const categoryMessage = await channel.send({
       flags: MessageFlags.IsComponentsV2,
-      components: [categoryHeader(category), ...buildComponents(items, allScores)],
+      components: [dateHeader(date), categoryHeader(category), ...buildComponents(items, allScores)],
     });
     firstMessage ??= categoryMessage;
 

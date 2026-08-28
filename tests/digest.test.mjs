@@ -211,8 +211,29 @@ describe('postDigest', () => {
     const payable = opp('AI Hackathon', { sourceId: 'dou-hackathon', payment: '500 000 грн' });
     await postDigest(channel, [payable]);
     const payload = JSON.parse(JSON.stringify(sentMessages[0].payload.components));
-    const titleText = payload[1].components[0].content;
+    // payload[0] is the date line, payload[1] the category header, payload[2] the item container
+    const titleText = payload[2].components[0].content;
     assert.equal(titleText, '**AI Hackathon** · $');
+  });
+
+  it('opens each category message with a plain-text date line in Ukrainian long form', async () => {
+    const { channel, sentMessages } = makeFakeChannel();
+    const date = new Date('2026-08-28T12:00:00.000Z');
+    await postDigest(channel, [opp('AI Fellowship'), { kind: 'job', title: 'AI Engineer', tags: [] }], { date });
+    assert.equal(sentMessages.length, 2);
+    for (const { payload } of sentMessages) {
+      const components = JSON.parse(JSON.stringify(payload.components));
+      assert.equal(components[0].content, '28 серпня 2026');
+    }
+  });
+
+  it('defaults the date line to now when no date is given', async () => {
+    const { channel, sentMessages } = makeFakeChannel();
+    const before = new Date();
+    await postDigest(channel, [opp('AI Fellowship')]);
+    const components = JSON.parse(JSON.stringify(sentMessages[0].payload.components));
+    const months = ['січня', 'лютого', 'березня', 'квітня', 'травня', 'червня', 'липня', 'серпня', 'вересня', 'жовтня', 'листопада', 'грудня'];
+    assert.equal(components[0].content, `${before.getDate()} ${months[before.getMonth()]} ${before.getFullYear()}`);
   });
 
   it('does not append " · $" when there is no concrete prize figure, or for a job', async () => {
@@ -252,10 +273,11 @@ describe('postDigest', () => {
     const { channel, sentMessages } = makeFakeChannel();
     await postDigest(channel, [{ ...opp('nolink'), location: 'Lviv', link: null }]);
     const payload = JSON.parse(JSON.stringify(sentMessages[0].payload.components));
+    // payload[0] date line, payload[1] category header, payload[2] item container.
     // No link -> no Section/button, just a plain text block (see
     // itemContainer's link-vs-no-link branch): components[1] is the body
     // TextDisplay directly, not nested inside a Section.
-    const metaLine = payload[1].components[1].content;
+    const metaLine = payload[2].components[1].content;
     assert.equal(metaLine, 'Lviv');
   });
 
@@ -263,8 +285,8 @@ describe('postDigest', () => {
     const { channel, sentMessages } = makeFakeChannel();
     await postDigest(channel, [{ ...opp('spaced'), summary: 'A concrete sentence.' }]);
     const payload = JSON.parse(JSON.stringify(sentMessages[0].payload.components));
-    // payload[0] is now the category header; the item container is payload[1]
-    const text = payload[1].components[1].components[0].content;
+    // payload[0] date line, payload[1] category header, payload[2] item container
+    const text = payload[2].components[1].components[0].content;
     assert.ok(text.includes('A concrete sentence.\n\n'));
   });
 
@@ -279,7 +301,7 @@ describe('postDigest', () => {
     const scoringPopulation = [fellowship, ...Array.from({ length: 9 }, (_, i) => opp(`filler-${i}`))];
     await postDigest(channel, [fellowship], { scoringPopulation });
     const payload = JSON.parse(JSON.stringify(sentMessages[0].payload.components));
-    const itemContainerJson = payload[1]; // payload[0] is the category header
+    const itemContainerJson = payload[2]; // payload[0] date line, payload[1] category header
     assert.equal(itemContainerJson.accent_color, GOLD_ACCENT);
   });
 
